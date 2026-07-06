@@ -23,6 +23,9 @@ for test coverage.
   Share API where available, or downloaded.
 - **Installable & offline** — "Add to Home Screen"; works with no signal
   after first load. A dismissible toast surfaces update/offline-ready status.
+- **Multi-trip** — create, rename, switch between, and delete trips from a
+  header trip switcher. Each trip has its own expenses and per-category
+  budget; a device always keeps at least one trip.
 
 ## Tech stack
 
@@ -66,16 +69,22 @@ mode). Data persists across reloads via IndexedDB.
 ```
 src/
   types.ts          Domain model + fixed category set; isUsdPending
-  db.ts             IndexedDB load/save (localForage); creates the hidden
-                     default trip once, on first load
-  useTripData.ts    The one stateful hook (loads once, mirrors to IndexedDB)
+  db.ts             IndexedDB load/save (localForage): a trips registry +
+                     activeTripId, plus per-trip expense keys. Migrates
+                     pre-multi-trip data into a trip on first load.
+  useTrips.ts       Owns the trip registry: create/rename/delete/select,
+                     per-trip budget
+  useTripData.ts    Owns one trip's expenses (loads once per active trip,
+                     mirrors to IndexedDB)
   lib/              Pure logic, no React — unit-tested
     totals.ts       By-category totals + grand total (GBP & USD separate)
     report.ts       Shared export model consumed by both exporters
     csv.ts          CSV export
     xlsx.ts         Formatted .xlsx export (ExcelJS, dynamically imported)
-    format.ts       Currency + date helpers
-  components/       One file per screen (Entry, List, Totals, Export)
+    format.ts       Currency + date helpers; trip-name slugify for filenames
+    id.ts           Shared id generator
+  components/       One file per screen (Entry, List, Totals, Budget, Export)
+                    + TripSwitcher (header trip create/rename/switch/delete)
                     + UpdateToast (update/offline-ready banner)
   App.tsx           Tab shell
 scripts/gen-icons.mjs  Rasterizes the suitcase SVG to every icon size (sharp)
@@ -113,11 +122,12 @@ using `sharp` — no browser needed).
 
 ## Roadmap
 
-MVP (this scaffold) is Phase 1 in [`SPEC.md`](./SPEC.md). Remaining phases:
+MVP (this scaffold) is Phase 1 in [`SPEC.md`](./SPEC.md). Phases 2 and 3 are
+done:
 
 - **Phase 2 — budgeting:** pre-trip budget per category, budget-vs-actual view.
-- **Phase 3 — multi-trip:** trip creation/switching UI (every expense already
-  carries a hidden `tripId`, so this is additive, not a migration).
-- **Phase 4 — nice-to-haves:** backup/restore, receipt photos.
+- **Phase 3 — multi-trip:** trip creation/switching/rename/delete via the
+  header trip switcher; per-trip budgets and exports.
+- **Phase 4 — nice-to-haves (not started):** backup/restore, receipt photos.
 
-Don't pull that work forward without being asked.
+Don't pull Phase 4 work forward without being asked.
