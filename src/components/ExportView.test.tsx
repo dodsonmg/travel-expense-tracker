@@ -16,14 +16,14 @@ const exp = (over: Partial<Expense> = {}): Expense => ({
 
 describe('ExportView', () => {
   it('offers .xlsx (primary) and CSV exports', () => {
-    render(<ExportView expenses={[exp()]} budget={{}} />);
+    render(<ExportView expenses={[exp()]} budget={{}} tripName="My Trip" />);
     expect(screen.getByRole('button', { name: /export & share \.xlsx/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /download \.xlsx/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /download csv/i })).toBeEnabled();
   });
 
   it('disables export when there is nothing to export', () => {
-    render(<ExportView expenses={[]} budget={{}} />);
+    render(<ExportView expenses={[]} budget={{}} tripName="My Trip" />);
     expect(screen.getByRole('button', { name: /export & share \.xlsx/i })).toBeDisabled();
     expect(screen.getByText(/nothing to export yet/i)).toBeInTheDocument();
   });

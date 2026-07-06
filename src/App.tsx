@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import { useTrips } from './useTrips';
 import { useTripData } from './useTripData';
 import { EntryForm } from './components/EntryForm';
 import { ExpenseList } from './components/ExpenseList';
 import { TotalsView } from './components/TotalsView';
 import { BudgetView } from './components/BudgetView';
 import { ExportView } from './components/ExportView';
+import { TripSwitcher } from './components/TripSwitcher';
 import { UpdateToast } from './components/UpdateToast';
 
 const TABS = [
@@ -19,33 +21,44 @@ type TabId = (typeof TABS)[number]['id'];
 
 export default function App() {
   const [tab, setTab] = useState<TabId>('entry');
-  const trip = useTripData();
+  const trips = useTrips();
+  const tripData = useTripData(trips.activeTripId);
+  const ready = trips.loaded && tripData.loaded;
+  const activeTrip = trips.trips.find((t) => t.id === trips.activeTripId);
 
   function renderTab() {
     switch (tab) {
       case 'entry':
-        return <EntryForm onAdd={trip.addExpense} onDone={() => setTab('list')} />;
+        return (
+          <EntryForm onAdd={tripData.addExpense} onDone={() => setTab('list')} />
+        );
       case 'list':
         return (
           <ExpenseList
-            expenses={trip.expenses}
-            onUpdate={trip.updateExpense}
-            onDelete={trip.deleteExpense}
+            expenses={tripData.expenses}
+            onUpdate={tripData.updateExpense}
+            onDelete={tripData.deleteExpense}
           />
         );
       case 'totals':
-        return <TotalsView expenses={trip.expenses} />;
+        return <TotalsView expenses={tripData.expenses} />;
       case 'budget':
         return (
           <BudgetView
-            expenses={trip.expenses}
-            budget={trip.trip?.budget_usd ?? {}}
-            onSetBudget={trip.setBudget}
+            expenses={tripData.expenses}
+            budget={activeTrip?.budget_usd ?? {}}
+            onSetBudget={(category, amount) =>
+              trips.setBudget(trips.activeTripId, category, amount)
+            }
           />
         );
       case 'export':
         return (
-          <ExportView expenses={trip.expenses} budget={trip.trip?.budget_usd ?? {}} />
+          <ExportView
+            expenses={tripData.expenses}
+            budget={activeTrip?.budget_usd ?? {}}
+            tripName={activeTrip?.name ?? ''}
+          />
         );
     }
   }
@@ -54,12 +67,22 @@ export default function App() {
     <div className="app">
       <header className="app__header">
         <h1>Travel Expense Tracker</h1>
+        {trips.loaded && (
+          <TripSwitcher
+            trips={trips.trips}
+            activeTripId={trips.activeTripId}
+            onSelect={trips.selectTrip}
+            onCreate={trips.createTrip}
+            onRename={trips.renameTrip}
+            onDelete={trips.deleteTrip}
+          />
+        )}
       </header>
 
       <UpdateToast />
 
       <main className="app__main">
-        {!trip.loaded ? <p className="muted">Loading…</p> : renderTab()}
+        {!ready ? <p className="muted">Loading…</p> : renderTab()}
       </main>
 
       <nav className="tabbar">

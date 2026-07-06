@@ -1,50 +1,41 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Category, Expense, Trip } from './types';
-import { loadExpenses, loadOrCreateTrip, saveExpenses, saveTrip } from './db';
+import { useCallback, useEffect, useState } from 'react';
+import type { Expense } from './types';
+import { loadExpenses, saveExpenses } from './db';
+import { newId } from './lib/id';
 
-const newId = (): string =>
-  globalThis.crypto?.randomUUID?.() ??
-  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-// Loads the trip from IndexedDB once, keeps it in React state, and persists
-// any change back. Persistence is skipped until the initial load completes so
-// we never overwrite stored data with the empty initial state.
-export function useTripData() {
-  const [trip, setTrip] = useState<Trip | null>(null);
+// Loads one trip's expenses from IndexedDB, keeps them in React state, and
+// persists any change back. `loadedFor` (rather than a boolean ready ref) is
+// compared against the current tripId so that switching trips flips `ready`
+// to false in the same render tripId changes — closing the window where the
+// outgoing trip's still-resident state could otherwise get saved under the
+// new tripId before its own load resolves.
+export function useTripData(tripId: string) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const ready = useRef(false);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const ready = loadedFor === tripId;
 
   useEffect(() => {
+    if (!tripId) return;
     let alive = true;
-    void Promise.all([loadOrCreateTrip(), loadExpenses()]).then(([t, e]) => {
+    void loadExpenses(tripId).then((e) => {
       if (!alive) return;
-      setTrip(t);
       setExpenses(e);
-      ready.current = true;
-      setLoaded(true);
+      setLoadedFor(tripId);
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [tripId]);
 
   useEffect(() => {
-    if (ready.current) void saveExpenses(expenses);
-  }, [expenses]);
-
-  useEffect(() => {
-    if (ready.current && trip) void saveTrip(trip);
-  }, [trip]);
+    if (ready) void saveExpenses(tripId, expenses);
+  }, [ready, tripId, expenses]);
 
   const addExpense = useCallback(
     (data: Omit<Expense, 'id' | 'tripId'>) => {
-      setExpenses((prev) => [
-        { ...data, id: newId(), tripId: trip?.id ?? '' },
-        ...prev,
-      ]);
+      setExpenses((prev) => [{ ...data, id: newId(), tripId }, ...prev]);
     },
-    [trip],
+    [tripId],
   );
 
   const updateExpense = useCallback((id: string, patch: Partial<Expense>) => {
@@ -57,24 +48,12 @@ export function useTripData() {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
-  const setBudget = useCallback((category: Category, amount: number | null) => {
-    setTrip((t) => {
-      if (!t) return t;
-      const next = { ...(t.budget_usd ?? {}) };
-      if (amount == null) delete next[category];
-      else next[category] = amount;
-      return { ...t, budget_usd: next };
-    });
-  }, []);
-
   return {
-    loaded,
-    trip,
+    loaded: ready,
     expenses,
     addExpense,
     updateExpense,
     deleteExpense,
-    setBudget,
   };
 }
 

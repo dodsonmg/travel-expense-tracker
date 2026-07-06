@@ -1,11 +1,12 @@
 import type { Category, Expense } from '../types';
 import { buildReport } from './report';
+import { slugify } from './format';
 
 export const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-export function xlsxFilename(now = new Date()): string {
-  return `trip-expenses-${now.toISOString().slice(0, 10)}.xlsx`;
+export function xlsxFilename(tripName: string, now = new Date()): string {
+  return `trip-expenses-${slugify(tripName)}-${now.toISOString().slice(0, 10)}.xlsx`;
 }
 
 const MONEY_FMT = '#,##0.00';
@@ -32,6 +33,7 @@ const overBudgetFill = () =>
 export async function buildXlsx(
   expenses: Expense[],
   budget: Partial<Record<Category, number>> = {},
+  tripName = '',
 ): Promise<ArrayBuffer> {
   const { default: ExcelJS } = await import('exceljs');
   const report = buildReport(expenses, budget);
@@ -44,7 +46,9 @@ export async function buildXlsx(
   const totals = wb.addWorksheet('Totals');
   totals.columns = [16, 12, 12, 14].map((width) => ({ width }));
 
-  const title = totals.addRow(['Trip Expense Totals']);
+  const title = totals.addRow([
+    tripName ? `${tripName} — Expense Totals` : 'Trip Expense Totals',
+  ]);
   title.font = { bold: true, size: 14 };
   totals.addRow([`Exported ${new Date().toISOString().slice(0, 10)}`]);
   totals.addRow([]);

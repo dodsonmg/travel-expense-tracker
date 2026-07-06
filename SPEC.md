@@ -44,31 +44,31 @@ app).
 
 ## Data model
 
-### Trip (hidden in the UI for now)
+### Trip
 
-Every expense belongs to a trip, but the UI does not expose trip
-creation/switching yet — there is exactly one implicit trip, auto-created on
-first load. This is purely to avoid a data migration when multi-trip support
-(Phase 3 below) is added.
+Every expense belongs to a trip. A device always has at least one trip (a
+default is auto-created on first load, or migrated from pre-Phase-3 data —
+see Phase 3 below); the header's trip switcher lets the user create,
+rename, switch between, and delete trips.
 
 | field        | notes                                                              |
 |--------------|---------------------------------------------------------------------|
-| `id`         | generated once, on first load                                       |
-| `name`       | placeholder value; not shown in UI yet                              |
+| `id`         | generated once, when the trip is created                            |
+| `name`       | user-editable, shown in the header trip switcher                    |
 | `createdAt`  | ISO timestamp                                                        |
 | `budget_usd` | optional, per-category USD ceiling (Phase 2); absent = not set yet    |
 
 `budget_usd` is a map keyed by category (a subset of the 6 fixed categories
 may be set; the rest are treated as no budget / $0 ceiling). It lives on
-`Trip` rather than a separate record so Phase 3's per-trip budgets don't need
-a migration once trips become plural.
+`Trip` rather than a separate record, so switching the active trip carries
+its budget along automatically.
 
 ### Expense
 
 | field        | notes                                                              |
 |--------------|-----------------------------------------------------------------------|
 | `id`         | generated                                                            |
-| `tripId`     | the implicit trip's id; invisible to the user for now                |
+| `tripId`     | the trip it belongs to; scopes it to that trip's data/exports         |
 | `date`       | defaults to today on entry; freely editable                         |
 | `category`   | one of the 6 fixed categories above                                  |
 | `amount_gbp` | optional                                                             |
@@ -193,9 +193,27 @@ Same as `dts-expense-tracker`, minus what's not needed:
    planned commitments don't inflate it before they're real.
 
 **Phase 3 — multi-trip**
-9. Trip creation/switching UI (the `tripId` plumbing from Phase 1 makes this
-   additive, not a migration).
-10. Per-trip budgets and exports; a trip list/summary view.
+9. ~~Trip creation/switching UI (the `tripId` plumbing from Phase 1 makes this
+   additive, not a migration).~~ **Done** — a `trips: Trip[]` registry and
+   `activeTripId` live in IndexedDB (`db.ts`), migrated from the old
+   single-trip flat keys by `ensureInitialized()` (idempotent; an upgrading
+   user's existing trip keeps its id/name/`budget_usd`, a fresh install gets
+   one default trip — no naming prompt either way). `useTrips.ts` owns the
+   registry plus create/rename/delete/select; a device always has **at least
+   one trip** (deleting the last one is disallowed). Each trip's expenses
+   live under `trip:<id>:expenses`-prefixed keys, loaded by
+   `useTripData(tripId)`, which reloads whenever the active trip changes. The
+   header's `TripSwitcher` is the switch/create/rename/delete UI, reachable
+   from every tab — the existing 5-tab bottom bar is unchanged.
+10. ~~Per-trip budgets and exports; a trip list/summary view.~~ **Done** —
+    `budget_usd` already lived on `Trip` (Phase 2), so per-trip budgets were
+    already additive once (9) landed; `useTrips.setBudget(tripId, category,
+    amount)` patches the right trip. Exports (CSV/`.xlsx`) are per-trip by
+    construction (they only ever see the active trip's expenses), and
+    filenames/the `.xlsx` Totals sheet title fold in the active trip's name
+    (slugified for filenames) so multiple trips' exports don't look
+    identical. No separate trip list/summary screen — the header switcher's
+    open panel already is one.
 
 **Phase 4 — nice-to-haves (not committed)**
 11. Backup/restore all data as a file.

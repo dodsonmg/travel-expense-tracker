@@ -87,9 +87,15 @@ describe('buildCsv', () => {
 });
 
 describe('csvFilename', () => {
-  it('is dated YYYY-MM-DD', () => {
-    expect(csvFilename(new Date('2026-07-04T12:00:00Z'))).toBe(
-      'trip-expenses-2026-07-04.csv',
+  it('is dated YYYY-MM-DD and includes a slugified trip name', () => {
+    expect(csvFilename('My Trip', new Date('2026-07-04T12:00:00Z'))).toBe(
+      'trip-expenses-my-trip-2026-07-04.csv',
+    );
+  });
+
+  it('falls back to "trip" for a blank trip name', () => {
+    expect(csvFilename('', new Date('2026-07-04T12:00:00Z'))).toBe(
+      'trip-expenses-trip-2026-07-04.csv',
     );
   });
 });

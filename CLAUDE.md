@@ -30,13 +30,21 @@ npm test           # vitest run
   Accommodation, Food & Dining, Pet Sitting, Entertainment, Misc), `Trip`
   (incl. `budget_usd`), `Expense` (incl. `status`), `isUsdPending`,
   `isPlanned`. Single source of truth for the data model.
-- `src/db.ts` — IndexedDB load/save for the trip (incl. its budget) and
-  expenses; `loadOrCreateTrip` creates the one hidden default trip on first
-  run and reuses it afterward.
-- `src/useTripData.ts` — the one stateful hook: loads once, mirrors state to
-  IndexedDB, exposes add/update/delete for expenses and `setBudget` for the
-  trip's per-category budget. `App` owns it and passes slices down;
-  components are otherwise presentational.
+- `src/db.ts` — IndexedDB load/save, keyed by trip. Two global keys hold the
+  `trips: Trip[]` registry and the `activeTripId`; each trip's expenses live
+  under a `trip:<id>:expenses`-prefixed key. `ensureInitialized()` runs once
+  on load: a no-op if the registry already exists, otherwise migrates the old
+  pre-multi-trip flat `'trip'`/`'expenses'` keys into a trip that keeps its
+  original id/name/`budget_usd` (or synthesizes a default trip on a genuinely
+  fresh install). Legacy keys are read once and never deleted.
+- `src/useTrips.ts` — owns the trip registry: `trips`, `activeTripId`,
+  create/rename/delete/select, and `setBudget(tripId, category, amount)`
+  (since `budget_usd` lives on `Trip`). A device always has ≥1 trip —
+  `deleteTrip` no-ops on the last remaining one.
+- `src/useTripData.ts` — parameterized by `tripId`; owns just that trip's
+  `expenses` (load/save/add/update/delete), reloading whenever the active
+  trip changes. `App` composes `useTrips()` + `useTripData(activeTripId)` and
+  passes slices down; components are otherwise presentational.
 - `src/lib/` — pure functions, no React:
   - `totals.ts` — by-category totals, grand total, USD-pending counts.
     Actual-only (excludes `status: 'planned'` expenses).
@@ -54,8 +62,9 @@ npm test           # vitest run
     `vitest.config.ts` (no `VitePWA` plugin there), so mocking it directly
     fails at Vite's import-analysis step before `vi.mock` ever applies.
 - `src/components/` — one file per screen: `EntryForm`, `ExpenseList`,
-  `TotalsView`, `BudgetView`, `ExportView`. `App.tsx` is the tab shell; it
-  also mounts `UpdateToast`.
+  `TotalsView`, `BudgetView`, `ExportView`, plus `TripSwitcher` (the header
+  trip create/rename/switch/delete control — not a 6th tab). `App.tsx` is the
+  tab shell; it also mounts `UpdateToast`.
 
 ## Domain invariants — get these wrong and the tool is misleading
 
@@ -83,20 +92,22 @@ npm test           # vitest run
 4. **Amounts are optional** but an expense needs at least one of GBP/USD to
    save (`EntryForm`'s `canSave`).
 5. **Date defaults to today, freely editable.**
-6. **Every expense carries a hidden `tripId`.** There is exactly one trip,
-   auto-created by `loadOrCreateTrip` on first load; the UI has no
-   trip-switching yet (Phase 3 in `SPEC.md`). This exists purely so
-   multi-trip support later is additive, not a data migration — don't add
-   trip-switching UI without being asked, and don't remove `tripId` from the
-   model even though nothing reads it today.
+6. **Every expense carries a `tripId`, scoping it to one trip.** Multi-trip
+   is live (Phase 3 in `SPEC.md`): the header's `TripSwitcher` creates,
+   renames, switches, and deletes trips via `useTrips.ts`. A device always
+   has at least one trip — `deleteTrip` refuses to delete the last one.
+   Switching trips reloads `useTripData`'s `expenses` for the newly active
+   `tripId`; it never mixes rows across trips.
 7. **No DTS/reconciliation, no M&IE, no mileage calculator, no payment-method
    split.** These are the sibling project's concepts, not this one's. Budget
    vs. actual (Phase 2, invariant 2a) is a self-set comparison, not a
    resurrection of the DTS model.
 8. **`budget_usd` lives on `Trip`, not a separate key.** Per-category USD
    ceiling, optional/partial (a category with no entry has no budget set).
-   Kept on `Trip` rather than a standalone record so Phase 3's per-trip
-   budgets are additive, same reasoning as `tripId` in invariant 6.
+   Kept on `Trip` (in the `trips` registry) rather than a standalone record,
+   so each trip carries its own budget automatically when switched to;
+   `useTrips.setBudget(tripId, category, amount)` is the only place that
+   mutates it.
 
 ## Export contract
 
@@ -142,7 +153,7 @@ zone since OS icon masks clip anything near the edges; never point
 MVP (this scaffold) is Phase 1 in `SPEC.md`. Phase 2 is budgeting: a
 per-category USD ceiling (`Trip.budget_usd`) plus a `status: 'planned' |
 'actual'` field on `Expense` for unpaid commitments, compared on a new Budget
-view/export (invariants 2a, 8). Phase 3 is multi-trip (trip
-creation/switching UI — the `tripId` plumbing from Phase 1 makes this
-additive). Phase 4 is backup/restore and receipt photos. Don't pull that work
-forward without being asked.
+view/export (invariants 2a, 8). Phase 3 (multi-trip) is done — see
+invariant 6 and the `db.ts`/`useTrips.ts` bullets above. Phase 4 is
+backup/restore and receipt photos. Don't pull that work forward without
+being asked.

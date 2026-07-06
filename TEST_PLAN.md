@@ -59,7 +59,9 @@ typecheck, test, build) on every push/PR.
 - Null amounts render as blank cells, not "null"/"NaN".
 - A planned/reserved expense row is flagged in the `planned` column and
   excluded from the TOTALS BY CATEGORY block.
-- `csvFilename()` embeds today's date and a stable prefix.
+- `csvFilename(tripName)` embeds today's date, a stable prefix, and a
+  slugified version of the trip name; a blank trip name falls back to a
+  `trip` placeholder segment rather than an empty one.
 
 ### `xlsx.ts`
 - `buildXlsx` produces a workbook with a Totals sheet, a Budget sheet, and an
@@ -75,7 +77,11 @@ typecheck, test, build) on every push/PR.
   highlighted.
 - Money columns carry a numeric format (`#,##0.00`), not a currency-glyph
   string — the export must reconcile numerically, not just look right.
-- `xlsxFilename()` embeds today's date.
+- `xlsxFilename(tripName)` embeds today's date and a slugified trip name
+  (same blank-name fallback as `csvFilename`).
+- The Totals sheet's title row folds in the trip name when one is passed
+  (e.g. "Bali 2027 — Expense Totals"), falling back to the generic "Trip
+  Expense Totals" when it isn't.
 
 ### `report.ts` (shared export model)
 - CSV and XLSX both build from the same `buildReport()` output for a given
@@ -88,27 +94,23 @@ typecheck, test, build) on every push/PR.
 
 ## 2. Persistence (`db.ts`, `useTripData.ts`)
 
-- `loadExpenses()` on an empty store returns `[]`; after `saveExpenses`, a
-  fresh `loadExpenses()` round-trips the same data.
-- A hidden default trip is created exactly once on first load (no `tripId` in
-  storage yet) and reused on subsequent loads (no duplicate trips created on
-  every app open).
-- `useTripData`: initial state is `loaded: false`; after the load effect
-  resolves, `loaded: true` and `expenses`/trip data reflect storage.
-- `addExpense` assigns a generated `id` and the hidden trip's `tripId`,
-  prepends to the list (newest-first ordering matches the List screen's
-  expectation).
+- `loadExpenses(tripId)` on an empty store returns `[]`; after
+  `saveExpenses(tripId, ...)`, a fresh `loadExpenses(tripId)` round-trips the
+  same data, scoped to that trip only (see §6 for cross-trip isolation and
+  the migration path — both now live in `db.ts`/`useTrips.ts`).
+- `useTripData(tripId)`: initial state is `loaded: false`; after the load
+  effect resolves, `loaded: true` and `expenses` reflect that trip's storage.
+  Switching `tripId` (e.g. via the trip switcher) re-triggers the load effect
+  and swaps in the new trip's expenses without leaking the old trip's rows.
+- `addExpense` assigns a generated `id` and the active `tripId`, prepends to
+  the list (newest-first ordering matches the List screen's expectation).
 - `updateExpense` patches only the targeted row; other rows are unchanged
   (reference equality preserved for untouched objects, to avoid pointless
   re-renders).
 - `deleteExpense` removes only the targeted row.
-- `setBudget(category, amount)` sets/updates the trip's `budget_usd` map;
-  `setBudget(category, null)` clears a category's entry entirely.
 - Persistence is skipped until the initial load completes (guards against the
-  empty initial state overwriting real stored data — this was a documented
-  invariant in the reference app's `useTripData` and is worth a regression
-  test here too) — covers both `saveExpenses` and the newer `saveTrip` (fired
-  when the budget map changes).
+  empty initial state overwriting real stored data) — covers `saveExpenses`.
+  `budget_usd` persistence (`setBudget`) has moved to `useTrips` — see §6.
 
 ## 3. Components (Testing Library)
 
@@ -158,14 +160,61 @@ typecheck, test, build) on every push/PR.
 ### `ExportView`
 - Export buttons disabled when there are zero expenses.
 - Clicking "Download CSV" / "Download .xlsx" triggers a blob download with
-  the expected filename pattern.
+  the expected filename pattern, including the active trip's (slugified)
+  name via the `tripName` prop.
 - Share path (Web Share API present) attempts `navigator.share`; falls back to
   download if `canShare` is false or `share()` rejects (user cancels).
 - Busy state disables buttons during async `.xlsx` generation and clears
   after success or failure; a failed export shows an error message rather
   than throwing.
 
-## 4. Manual / PWA verification (not automatable, or not worth automating)
+## 4. Trip switching (`db.ts`, `useTrips.ts`, `TripSwitcher`)
+
+### `db.ts` — `ensureInitialized` migration
+- Fresh install (no keys at all): synthesizes one default trip (`My Trip`)
+  with empty expenses; `trips` has length 1 and `activeTripId` matches it.
+- Legacy single-trip upgrade: seed the old flat `'trip'`/`'expenses'` keys
+  directly, then call `ensureInitialized()` — the resulting trip preserves
+  the legacy trip's `id`/`name`/`createdAt`/`budget_usd` exactly, and its
+  expenses move under the new `trip:<id>:expenses` key without loss. Legacy
+  keys are still present afterward (never deleted).
+- Idempotency: calling `ensureInitialized()` a second time returns the same
+  `trips`/`activeTripId`, doesn't re-migrate or duplicate anything.
+- `activeTripId` resolution: falls back to `trips[0].id` when never saved;
+  honors a previously saved id across multiple trips.
+
+### Per-trip storage isolation
+- `saveExpenses('t1', ...)` / `saveExpenses('t2', ...)` never leak into each
+  other; `deleteTripStorage(tripId)` removes only that trip's expenses key,
+  leaving other trips' data intact.
+
+### `useTrips`
+- Auto-creates one trip on first load (mirrors the `ensureInitialized` fresh
+  install case, exercised through the hook).
+- `createTrip(name)` appends a new trip, switches `activeTripId` to it, and
+  trims/defaults a blank name to "New trip".
+- `renameTrip(id, name)` patches only the targeted trip's name; a blank
+  rename leaves the existing name untouched.
+- `deleteTrip(id)` refuses when it's the last remaining trip (no-op, no
+  storage call); deleting the active trip reassigns `activeTripId` to a
+  remaining trip; deleting a non-active trip leaves `activeTripId` untouched.
+- `setBudget(tripId, category, amount)` patches only the targeted trip's
+  `budget_usd`; `amount: null` clears a category's entry; other trips'
+  budgets are unaffected.
+
+### `TripSwitcher` component
+- Closed by default, showing the active trip's name on the toggle button.
+- Opening the panel lists every trip; selecting a non-active one calls
+  `onSelect` and closes the panel.
+- Rename flow: clicking "Rename" swaps the row for a text input pre-filled
+  with the current name; "Save" calls `onRename`, "Cancel" discards.
+- Create flow: "＋ New trip" reveals a name input; "Create" calls `onCreate`
+  with the entered value.
+- Delete requires a second confirmation step (a "can't be undone" card) before
+  calling `onDelete`; the initial "Delete" click alone must not call it.
+- Delete is disabled (with an explanatory tooltip) when only one trip exists.
+
+## 5. Manual / PWA verification (not automatable, or not worth automating)
 
 Run via `npm run build && npm run preview` (service worker only runs against
 a built app):
@@ -186,15 +235,18 @@ a built app):
   match what the app shows.
 - Data survives a full app close/reopen (IndexedDB persistence, not just
   React state).
+- Multi-trip end-to-end in a real mobile viewport: create a second trip via
+  the header switcher, confirm Entry/List/Totals/Budget/Export all show that
+  trip's (empty) data; switch back to the first trip and confirm its
+  expenses/budget are intact; rename a trip; attempt to delete down to one
+  trip and confirm the last one can't be deleted; export from two different
+  trips and confirm distinct filenames and `.xlsx` Totals sheet titles.
+- Load the app with data seeded under the old pre-multi-trip flat keys (e.g.
+  via devtools IndexedDB) and confirm `ensureInitialized` migrates it into
+  trip #1 without data loss.
 
-## 5. CI
+## 6. CI
 
 `ci.yml` runs `npm run lint`, `npm run typecheck`, `npm test`, and
 `npm run build` on push/PR, matching the reference app's pipeline. `deploy.yml`
 publishes `dist/` to GitHub Pages on push to `main`.
-
-## Out of scope for this test plan
-
-Multi-trip functionality (Phase 3 in `SPEC.md`) isn't built yet, so there's
-nothing to test. When it lands, this plan should grow a trip-switching
-section rather than being rewritten from scratch.
