@@ -1,0 +1,49 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+
+// GitHub Pages serves from /<repo>/. Override with VITE_BASE for a custom
+// domain or Netlify (where base should be '/').
+const base = process.env.VITE_BASE ?? '/travel-expense-tracker/';
+
+export default defineConfig({
+  base,
+  build: {
+    // ExcelJS is a deliberately code-split, lazy-loaded chunk (~270 kB gzip),
+    // loaded only when the user exports. Raise the advisory warning threshold.
+    chunkSizeWarningLimit: 1000,
+  },
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      manifest: {
+        name: 'Travel Expense Tracker',
+        short_name: 'Trip Expenses',
+        description:
+          'Offline-first tool to track individual trip expenses by category.',
+        theme_color: '#1f2933',
+        background_color: '#1f2933',
+        display: 'standalone',
+        orientation: 'portrait',
+        icons: [
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          {
+            // Distinct asset, not a reuse of the "any" icon above: maskable
+            // icons get clipped to an OS-specific shape, so the artwork must
+            // sit in a safe zone with real padding (see gen-icons.mjs).
+            src: 'pwa-512x512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+      },
+    }),
+  ],
+});
