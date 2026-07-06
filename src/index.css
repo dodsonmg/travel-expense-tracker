@@ -381,3 +381,50 @@ h2 {
   color: var(--danger);
   border-color: var(--danger);
 }
+
+/* ---- Budget tiles ---- */
+.budget-tiles {
+  gap: 0.7rem;
+}
+.budget-tile__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+}
+.budget-tile__cat {
+  font-weight: 600;
+}
+.budget-tile__budget {
+  margin-bottom: 0.8rem;
+}
+.budget-tile__stats {
+  display: flex;
+  gap: 0.6rem;
+}
+.budget-tile__stats--total {
+  flex-wrap: wrap;
+  row-gap: 0.6rem;
+}
+.budget-tile__stat {
+  flex: 1;
+  min-width: 4.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.budget-tile__stat-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.budget-tile__stat-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.budget-tile__stat-value--over {
+  color: var(--danger);
+}
+.budget-tile--total {
+  border-color: var(--accent);
+}

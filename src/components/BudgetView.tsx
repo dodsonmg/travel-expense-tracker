@@ -14,52 +14,48 @@ export function BudgetView({ expenses, budget, onSetBudget }: Props) {
   const total = budgetGrandTotal(rows);
 
   return (
-    <div className="stack">
-      <table className="totals">
-        <thead>
-          <tr>
-            <th>Category</th>
-            <th className="num">Budget</th>
-            <th className="num">Actual</th>
-            <th className="num">Planned</th>
-            <th className="num">Remaining</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <Row key={r.category} row={r} onSetBudget={onSetBudget} />
-          ))}
-        </tbody>
-        <tfoot>
-          <tr>
-            <th scope="row">Total</th>
-            <th className="num">{money(total.budgetUsd, 'USD')}</th>
-            <th className="num">{money(total.actualUsd, 'USD')}</th>
-            <th className="num">{money(total.plannedUsd, 'USD')}</th>
-            <th className="num">{money(total.remainingUsd, 'USD')}</th>
-          </tr>
-        </tfoot>
-      </table>
+    <div className="stack budget-tiles">
+      {rows.map((r) => (
+        <Tile key={r.category} row={r} onSetBudget={onSetBudget} />
+      ))}
+
+      <div className="card budget-tile budget-tile--total">
+        <div className="budget-tile__head">
+          <span className="budget-tile__cat">Total</span>
+        </div>
+        <div className="budget-tile__stats budget-tile__stats--total">
+          <Stat label="Budget" value={money(total.budgetUsd, 'USD')} />
+          <Stat label="Actual" value={money(total.actualUsd, 'USD')} />
+          <Stat label="Planned" value={money(total.plannedUsd, 'USD')} />
+          <Stat
+            label="Remaining"
+            value={money(total.remainingUsd, 'USD')}
+            warn={total.remainingUsd < 0}
+          />
+        </div>
+      </div>
     </div>
   );
 }
 
-interface RowProps {
+interface TileProps {
   row: BudgetRow;
   onSetBudget: (category: Category, amount: number | null) => void;
 }
 
-function Row({ row, onSetBudget }: RowProps) {
+function Tile({ row, onSetBudget }: TileProps) {
   const [text, setText] = useState(row.budgetUsd > 0 ? String(row.budgetUsd) : '');
   const overBudget = row.remainingUsd < 0;
 
   return (
-    <tr>
-      <th scope="row">
-        {row.category}
+    <div className="card budget-tile">
+      <div className="budget-tile__head">
+        <span className="budget-tile__cat">{row.category}</span>
         {overBudget && <span className="tag tag--over">over budget</span>}
-      </th>
-      <td className="num">
+      </div>
+
+      <label className="field budget-tile__budget">
+        <span>Budget (USD)</span>
         <input
           type="number"
           inputMode="decimal"
@@ -73,10 +69,24 @@ function Row({ row, onSetBudget }: RowProps) {
             onSetBudget(row.category, parseAmount(e.target.value));
           }}
         />
-      </td>
-      <td className="num">{money(row.actualUsd, 'USD')}</td>
-      <td className="num">{money(row.plannedUsd, 'USD')}</td>
-      <td className="num">{money(row.remainingUsd, 'USD')}</td>
-    </tr>
+      </label>
+
+      <div className="budget-tile__stats">
+        <Stat label="Actual" value={money(row.actualUsd, 'USD')} />
+        <Stat label="Planned" value={money(row.plannedUsd, 'USD')} />
+        <Stat label="Remaining" value={money(row.remainingUsd, 'USD')} warn={overBudget} />
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="budget-tile__stat">
+      <span className="budget-tile__stat-label">{label}</span>
+      <span className={`budget-tile__stat-value${warn ? ' budget-tile__stat-value--over' : ''}`}>
+        {value}
+      </span>
+    </div>
   );
 }
