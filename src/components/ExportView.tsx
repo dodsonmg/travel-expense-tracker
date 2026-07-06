@@ -1,16 +1,17 @@
 import { useState } from 'react';
-import type { Expense } from '../types';
+import type { Category, Expense } from '../types';
 import { buildCsv, csvFilename } from '../lib/csv';
 import { buildXlsx, xlsxFilename, XLSX_MIME } from '../lib/xlsx';
 
 interface Props {
   expenses: Expense[];
+  budget: Partial<Record<Category, number>>;
 }
 
 // Export to keep or share. A formatted .xlsx (totals sheet up top) is
 // primary; a plain CSV is kept as a lightweight fallback. Sharing uses the
 // Web Share API (mobile share sheet) with a download fallback.
-export function ExportView({ expenses }: Props) {
+export function ExportView({ expenses, budget }: Props) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -44,12 +45,12 @@ export function ExportView({ expenses }: Props) {
   }
 
   async function makeXlsx(): Promise<{ blob: Blob; name: string }> {
-    const buf = await buildXlsx(expenses);
+    const buf = await buildXlsx(expenses, budget);
     return { blob: new Blob([buf], { type: XLSX_MIME }), name: xlsxFilename() };
   }
 
   function makeCsv(): { blob: Blob; name: string } {
-    const csv = buildCsv(expenses);
+    const csv = buildCsv(expenses, budget);
     return { blob: new Blob([csv], { type: 'text/csv' }), name: csvFilename() };
   }
 

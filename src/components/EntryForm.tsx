@@ -1,18 +1,10 @@
 import { useState } from 'react';
 import { CATEGORIES, type Category, type Expense } from '../types';
-import { today } from '../lib/format';
+import { parseAmount, today } from '../lib/format';
 
 interface Props {
   onAdd: (data: Omit<Expense, 'id' | 'tripId'>) => void;
   onDone: () => void;
-}
-
-// Parse a currency input: blank -> null, otherwise a non-negative number.
-function parseAmount(raw: string): number | null {
-  const s = raw.trim();
-  if (s === '') return null;
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 // Optimized for fast repeated entry: after saving, amounts and note clear but
@@ -23,6 +15,7 @@ export function EntryForm({ onAdd, onDone }: Props) {
   const [gbp, setGbp] = useState('');
   const [usd, setUsd] = useState('');
   const [note, setNote] = useState('');
+  const [planned, setPlanned] = useState(false);
 
   const amountGbp = parseAmount(gbp);
   const amountUsd = parseAmount(usd);
@@ -36,10 +29,12 @@ export function EntryForm({ onAdd, onDone }: Props) {
       amount_gbp: amountGbp,
       amount_usd: amountUsd,
       note: note.trim(),
+      status: planned ? 'planned' : 'actual',
     });
     setGbp('');
     setUsd('');
     setNote('');
+    setPlanned(false);
     if (thenDone) onDone();
   }
 
@@ -109,6 +104,15 @@ export function EntryForm({ onAdd, onDone }: Props) {
           onChange={(e) => setNote(e.target.value)}
           placeholder="optional"
         />
+      </label>
+
+      <label className="filter">
+        <input
+          type="checkbox"
+          checked={planned}
+          onChange={(e) => setPlanned(e.target.checked)}
+        />
+        <span>Reserved / not yet paid (planned)</span>
       </label>
 
       <div className="form__actions">

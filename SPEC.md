@@ -49,25 +49,41 @@ app).
 Every expense belongs to a trip, but the UI does not expose trip
 creation/switching yet — there is exactly one implicit trip, auto-created on
 first load. This is purely to avoid a data migration when multi-trip support
-(Phase 2 below) is added.
+(Phase 3 below) is added.
 
-| field       | notes                                    |
-|-------------|-------------------------------------------|
-| `id`        | generated once, on first load              |
-| `name`      | placeholder value; not shown in UI yet      |
-| `createdAt` | ISO timestamp                               |
+| field        | notes                                                              |
+|--------------|---------------------------------------------------------------------|
+| `id`         | generated once, on first load                                       |
+| `name`       | placeholder value; not shown in UI yet                              |
+| `createdAt`  | ISO timestamp                                                        |
+| `budget_usd` | optional, per-category USD ceiling (Phase 2); absent = not set yet    |
+
+`budget_usd` is a map keyed by category (a subset of the 6 fixed categories
+may be set; the rest are treated as no budget / $0 ceiling). It lives on
+`Trip` rather than a separate record so Phase 3's per-trip budgets don't need
+a migration once trips become plural.
 
 ### Expense
 
-| field        | notes                                                          |
-|--------------|-----------------------------------------------------------------|
-| `id`         | generated                                                        |
-| `tripId`     | the implicit trip's id; invisible to the user for now            |
-| `date`       | defaults to today on entry; freely editable                     |
-| `category`   | one of the 6 fixed categories above                              |
-| `amount_gbp` | optional                                                         |
-| `amount_usd` | optional; backfilled when the charge lands on the card            |
-| `note`       | optional (vendor / description)                                  |
+| field        | notes                                                              |
+|--------------|-----------------------------------------------------------------------|
+| `id`         | generated                                                            |
+| `tripId`     | the implicit trip's id; invisible to the user for now                |
+| `date`       | defaults to today on entry; freely editable                         |
+| `category`   | one of the 6 fixed categories above                                  |
+| `amount_gbp` | optional                                                             |
+| `amount_usd` | optional; backfilled when the charge lands on the card                |
+| `note`       | optional (vendor / description)                                     |
+| `status`     | optional, `'planned' \| 'actual'` (Phase 2); absent = `'actual'`       |
+
+`status` distinguishes a known-but-unpaid commitment (`'planned'` — e.g. a
+hotel reservation with an estimated amount) from a normal, already-incurred
+expense (`'actual'`, the default). There is no separate "reservation" entity:
+a planned expense is just an `Expense` row with `status: 'planned'`, and
+**reconciling** it means editing that same row — filling in the real
+amount(s) once known and flipping `status` to `'actual'` — rather than
+creating a new row. Absent/undefined `status` is treated as `'actual'` so
+pre-Phase-2 stored expenses need no migration.
 
 No `payment` field (no GTCC-vs-personal concept), no `entered` field (no DTS
 to key into), no `miles`/`rate` (no mileage calculator).
@@ -83,16 +99,34 @@ One table, by category, in the fixed category order:
   against and therefore no mismatch/match logic like the reference app's
   reconciliation view.
 
+**Actual spend only** (Phase 2): totals here only include expenses with
+`status: 'actual'` (or no `status` at all). A planned/reserved expense (e.g.
+an unpaid hotel reservation) does not count toward these numbers or the grand
+total until it's reconciled to `'actual'` — this view answers "what have I
+actually spent," not "what have I committed to." Planned expenses are visible
+in the List view (with their own filter/badge) and in the Budget view below.
+
 ## Screens (MVP)
 
 1. **Entry** — form with a category dropdown, GBP and USD fields side by side,
    editable date defaulting to today, optional note. Optimized for fast
    repeated entry: after save, amounts and note clear but date/category
-   persist for the next row (same UX as the reference app).
+   persist for the next row (same UX as the reference app). Phase 2 adds a
+   "reserved / not yet paid" checkbox that sets `status: 'planned'`.
 2. **List** — all expenses for the trip, newest first; editable/deletable
-   inline; a "USD pending only" filter.
-3. **Totals** — by-category table described above.
+   inline; a "USD pending only" filter. Phase 2 adds a "planned only" filter
+   and a "Planned" badge alongside the existing USD-pending badge.
+3. **Totals** — by-category table described above (actual spend only as of
+   Phase 2).
 4. **Export** — one tap → CSV and/or formatted `.xlsx` (see below).
+5. **Budget** (Phase 2) — by-category table: BUDGET (editable USD ceiling per
+   category), ACTUAL (sum of `'actual'` expenses' `amount_usd`), PLANNED (sum
+   of `'planned'` expenses' `amount_usd`), REMAINING (`BUDGET − ACTUAL −
+   PLANNED`), plus a grand-total row. GBP-only expenses (planned or actual)
+   contribute $0 to ACTUAL/PLANNED until a USD amount is filled in — no
+   GBP→USD fallback, keeping the "never mix currencies" rule intact here too.
+   A category with no budget set shows `$0.00` and goes negative as soon as
+   anything is spent/planned against it.
 
 No Help/FAQ tab in the MVP — there's no DTS-specific domain vocabulary to
 teach (no "USD pending vs. incomplete vs. mismatch," no M&IE vs. MILEAGE). If
@@ -102,12 +136,17 @@ that turns out to be wrong, add one later.
 
 Two formats, matching the reference app's approach:
 
-- **CSV** (hand-rolled, no dependency): expense rows, then a totals-by-category
-  block (GBP, USD, `usd_pending` count), then a grand total.
+- **CSV** (hand-rolled, no dependency): expense rows (Phase 2 adds a `planned`
+  column), then a totals-by-category block (GBP, USD, `usd_pending` count —
+  actual-only as of Phase 2), then a grand total, then (Phase 2) a
+  `BUDGET VS ACTUAL` block — one row per category (`budget_usd`, `actual_usd`,
+  `planned_usd`, `remaining_usd`) plus a `TOTAL` row.
 - **`.xlsx`** (ExcelJS, dynamically imported to stay out of the main bundle):
   a formatted workbook — a **Totals** sheet (by category, USD-pending rows
-  highlighted) followed by an **Expenses** sheet (raw rows). No mismatch
-  highlighting (nothing to mismatch against).
+  highlighted, actual-only as of Phase 2), a **Budget** sheet (Phase 2 — same
+  columns as the CSV block, rows over budget highlighted), followed by an
+  **Expenses** sheet (raw rows, Phase 2 adds a `Planned` column/highlight). No
+  mismatch highlighting (nothing to mismatch against).
 
 Both share one export model (`report.ts`-equivalent) so CSV and XLSX can't
 drift from each other, same pattern as the reference app.
@@ -138,16 +177,26 @@ Same as `dts-expense-tracker`, minus what's not needed:
 
 **Phase 2 — budgeting**
 6. Pre-trip budget entry, per category (USD, since that's the total that
-   matters once cards settle).
-7. Budget-vs-actual comparison on the Totals view (and export), analogous in
-   spirit to the reference app's DTS reconciliation but comparing against a
-   budget you set yourself rather than a third-party system.
+   matters once cards settle) — a flat ceiling per category, not tied to any
+   specific expense (e.g. "$1000 for Food & Dining" with no individual rows
+   pre-allocated against it).
+7. A `status: 'planned' | 'actual'` field on `Expense` for known-but-unpaid
+   commitments (e.g. a reserved hotel): a planned expense is an ordinary
+   `Expense` row with an estimated amount, entered ahead of time, that counts
+   as "committed" rather than "spent." Reconciling it means editing that same
+   row once the real charge lands (fill in the amount, flip `status` to
+   `'actual'`) — not creating a second row.
+8. A **Budget** view/export section: BUDGET / ACTUAL / PLANNED / REMAINING
+   per category, analogous in spirit to the reference app's DTS reconciliation
+   but comparing against a budget you set yourself rather than a third-party
+   system. The existing Totals view/export narrows to actual-only spend so
+   planned commitments don't inflate it before they're real.
 
 **Phase 3 — multi-trip**
-8. Trip creation/switching UI (the `tripId` plumbing from Phase 1 makes this
+9. Trip creation/switching UI (the `tripId` plumbing from Phase 1 makes this
    additive, not a migration).
-9. Per-trip budgets and exports; a trip list/summary view.
+10. Per-trip budgets and exports; a trip list/summary view.
 
 **Phase 4 — nice-to-haves (not committed)**
-10. Backup/restore all data as a file.
-11. Receipt photos.
+11. Backup/restore all data as a file.
+12. Receipt photos.

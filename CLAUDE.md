@@ -27,15 +27,21 @@ npm test           # vitest run
 ## Architecture
 
 - `src/types.ts` — domain types + the fixed `CATEGORIES` list/order (Transport,
-  Accommodation, Food & Dining, Pet Sitting, Entertainment, Misc), `Trip`,
-  `Expense`, `isUsdPending`. Single source of truth for the data model.
-- `src/db.ts` — IndexedDB load/save for expenses; `loadOrCreateTrip` creates
-  the one hidden default trip on first run and reuses it afterward.
+  Accommodation, Food & Dining, Pet Sitting, Entertainment, Misc), `Trip`
+  (incl. `budget_usd`), `Expense` (incl. `status`), `isUsdPending`,
+  `isPlanned`. Single source of truth for the data model.
+- `src/db.ts` — IndexedDB load/save for the trip (incl. its budget) and
+  expenses; `loadOrCreateTrip` creates the one hidden default trip on first
+  run and reuses it afterward.
 - `src/useTripData.ts` — the one stateful hook: loads once, mirrors state to
-  IndexedDB, exposes add/update/delete for expenses. `App` owns it and passes
-  slices down; components are otherwise presentational.
+  IndexedDB, exposes add/update/delete for expenses and `setBudget` for the
+  trip's per-category budget. `App` owns it and passes slices down;
+  components are otherwise presentational.
 - `src/lib/` — pure functions, no React:
   - `totals.ts` — by-category totals, grand total, USD-pending counts.
+    Actual-only (excludes `status: 'planned'` expenses).
+  - `budget.ts` — by-category budget vs. actual vs. planned vs. remaining,
+    consumed by `BudgetView` and threaded into `report.ts`.
   - `report.ts` — one structured export model consumed by both exporters, so
     CSV and XLSX never drift.
   - `csv.ts` — CSV export document.
@@ -48,8 +54,8 @@ npm test           # vitest run
     `vitest.config.ts` (no `VitePWA` plugin there), so mocking it directly
     fails at Vite's import-analysis step before `vi.mock` ever applies.
 - `src/components/` — one file per screen: `EntryForm`, `ExpenseList`,
-  `TotalsView`, `ExportView`. `App.tsx` is the tab shell; it also mounts
-  `UpdateToast`.
+  `TotalsView`, `BudgetView`, `ExportView`. `App.tsx` is the tab shell; it
+  also mounts `UpdateToast`.
 
 ## Domain invariants — get these wrong and the tool is misleading
 
@@ -61,6 +67,15 @@ npm test           # vitest run
    landed on the card yet). Surfaced as a List filter, a Totals flag, and a
    CSV/xlsx column/highlight. `isUsdPending` (`types.ts`) is the single
    definition — don't reimplement the check elsewhere.
+2a. **"Planned"** (`status: 'planned'`, `isPlanned` in `types.ts`) = a known
+    but unpaid commitment (e.g. a reserved hotel), entered as an ordinary
+    `Expense` row with an estimated amount. Undefined `status` means
+    `'actual'` (pre-Phase-2 records have no field at all). Planned expenses
+    are excluded from `totalsByCategory`/the Totals view/export and only
+    count toward the Budget view's PLANNED column — **reconciling** one means
+    editing that same row (fill in the real amount, flip to `'actual'`), not
+    creating a new row. Budget's ACTUAL/PLANNED USD columns use `amount_usd`
+    only — no GBP fallback, per invariant 1.
 3. **Category set is fixed, in fixed order** (`CATEGORIES` in `types.ts`):
    Transport, Accommodation, Food & Dining, Pet Sitting, Entertainment, Misc.
    `totalsByCategory` always returns all six rows, even at zero, so the
@@ -75,22 +90,29 @@ npm test           # vitest run
    trip-switching UI without being asked, and don't remove `tripId` from the
    model even though nothing reads it today.
 7. **No DTS/reconciliation, no M&IE, no mileage calculator, no payment-method
-   split.** These are the sibling project's concepts, not this one's. If
-   asked to add reconciliation-style features, treat it as new scope (likely
-   Phase 2's budget-vs-actual, not a resurrection of the DTS model).
+   split.** These are the sibling project's concepts, not this one's. Budget
+   vs. actual (Phase 2, invariant 2a) is a self-set comparison, not a
+   resurrection of the DTS model.
+8. **`budget_usd` lives on `Trip`, not a separate key.** Per-category USD
+   ceiling, optional/partial (a category with no entry has no budget set).
+   Kept on `Trip` rather than a standalone record so Phase 3's per-trip
+   budgets are additive, same reasoning as `tripId` in invariant 6.
 
 ## Export contract
 
 `buildCsv` emits `EXPENSES` rows (date, category, amount_gbp, amount_usd,
-usd_pending, note), then `TOTALS BY CATEGORY` (one row per fixed category)
-plus a `TOTAL` row. Money cells are plain 2-dp numbers (or blank) — no
-currency glyphs.
+usd_pending, planned, note), then `TOTALS BY CATEGORY` (one row per fixed
+category, actual-only) plus a `TOTAL` row, then `BUDGET VS ACTUAL` (one row
+per category: budget_usd, actual_usd, planned_usd, remaining_usd) plus a
+`TOTAL` row. Money cells are plain 2-dp numbers (or blank) — no currency
+glyphs.
 
 The formatted `.xlsx` (`buildXlsx`, ExcelJS) renders from the same
-`report.ts` model: a **Totals** sheet (USD-pending rows highlighted) then an
-**Expenses** sheet (raw rows, USD-pending rows highlighted). Both exporters
-must render from `buildReport` so they never diverge. ExcelJS is dynamically
-imported; keep it out of any statically-loaded module.
+`report.ts` model: a **Totals** sheet (USD-pending rows highlighted,
+actual-only), a **Budget** sheet (over-budget rows highlighted), then an
+**Expenses** sheet (raw rows, USD-pending and planned rows highlighted).
+Both exporters must render from `buildReport` so they never diverge. ExcelJS
+is dynamically imported; keep it out of any statically-loaded module.
 
 ## PWA behavior
 
@@ -117,8 +139,10 @@ zone since OS icon masks clip anything near the edges; never point
 
 ## Roadmap
 
-MVP (this scaffold) is Phase 1 in `SPEC.md`. Phase 2 is budgeting
-(pre-trip budget per category, budget-vs-actual comparison). Phase 3 is
-multi-trip (trip creation/switching UI — the `tripId` plumbing from Phase 1
-makes this additive). Phase 4 is backup/restore and receipt photos. Don't
-pull that work forward without being asked.
+MVP (this scaffold) is Phase 1 in `SPEC.md`. Phase 2 is budgeting: a
+per-category USD ceiling (`Trip.budget_usd`) plus a `status: 'planned' |
+'actual'` field on `Expense` for unpaid commitments, compared on a new Budget
+view/export (invariants 2a, 8). Phase 3 is multi-trip (trip
+creation/switching UI — the `tripId` plumbing from Phase 1 makes this
+additive). Phase 4 is backup/restore and receipt photos. Don't pull that work
+forward without being asked.

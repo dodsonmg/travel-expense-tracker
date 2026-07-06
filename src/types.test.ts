@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { CATEGORIES, isUsdPending, type Expense } from './types';
+import { CATEGORIES, isPlanned, isUsdPending, type Expense } from './types';
 
-const exp = (gbp: number | null, usd: number | null): Expense => ({
+const exp = (
+  gbp: number | null,
+  usd: number | null,
+  status?: Expense['status'],
+): Expense => ({
   id: 'e',
   tripId: 't',
   date: '2026-07-01',
@@ -9,6 +13,7 @@ const exp = (gbp: number | null, usd: number | null): Expense => ({
   amount_gbp: gbp,
   amount_usd: usd,
   note: '',
+  status,
 });
 
 describe('CATEGORIES', () => {
@@ -40,5 +45,19 @@ describe('isUsdPending', () => {
 
   it('treats zero GBP as a real amount, not missing', () => {
     expect(isUsdPending(exp(0, null))).toBe(true);
+  });
+});
+
+describe('isPlanned', () => {
+  it('is false when status is undefined (pre-Phase-2 records)', () => {
+    expect(isPlanned(exp(50, null))).toBe(false);
+  });
+
+  it('is false when status is actual', () => {
+    expect(isPlanned(exp(50, null, 'actual'))).toBe(false);
+  });
+
+  it('is true when status is planned', () => {
+    expect(isPlanned(exp(50, null, 'planned'))).toBe(true);
   });
 });

@@ -55,6 +55,25 @@ describe('ExpenseList', () => {
     expect(screen.getByText('Accommodation')).toBeInTheDocument();
   });
 
+  it('"Planned only" filter shows only planned rows, and shows a Planned badge', async () => {
+    const user = userEvent.setup();
+    render(
+      <ExpenseList
+        expenses={[
+          exp({ id: 'a', category: 'Accommodation', status: 'planned' }),
+          exp({ id: 'b', category: 'Transport', status: 'actual' }),
+        ]}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText('Planned')).toHaveLength(1);
+    await user.click(screen.getByRole('checkbox', { name: /planned only/i }));
+    expect(screen.queryByText('Transport')).toBeNull();
+    expect(screen.getByText('Accommodation')).toBeInTheDocument();
+  });
+
   it('opens the editor when a row is clicked, and Save applies the patch', async () => {
     const user = userEvent.setup();
     const onUpdate = vi.fn();
@@ -76,6 +95,27 @@ describe('ExpenseList', () => {
     expect(onUpdate).toHaveBeenCalledWith(
       'a',
       expect.objectContaining({ note: 'movie night' }),
+    );
+  });
+
+  it('editing lets you flip planned/reserved status, and Save includes it in the patch', async () => {
+    const user = userEvent.setup();
+    const onUpdate = vi.fn();
+    render(
+      <ExpenseList
+        expenses={[exp({ id: 'a', category: 'Entertainment', status: 'actual' })]}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByText('Entertainment'));
+    await user.click(screen.getByLabelText(/reserved.*not yet paid/i));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onUpdate).toHaveBeenCalledWith(
+      'a',
+      expect.objectContaining({ status: 'planned' }),
     );
   });
 

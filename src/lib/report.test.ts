@@ -45,4 +45,39 @@ describe('buildReport', () => {
     ]);
     expect(r.grandTotal).toEqual({ gbp: 15, usd: 12 });
   });
+
+  it('flags planned expenses and excludes them from category/grand totals', () => {
+    const r = buildReport([
+      exp({ category: 'Accommodation', amount_gbp: 500, amount_usd: 650, status: 'planned' }),
+    ]);
+    expect(r.expenses[0].planned).toBe(true);
+    const acc = r.categories.find((c) => c.category === 'Accommodation')!;
+    expect(acc.gbp).toBe(0);
+    expect(acc.usd).toBe(0);
+    expect(r.grandTotal).toEqual({ gbp: 0, usd: 0 });
+  });
+
+  it('carries budget-vs-actual rows and a budget grand total', () => {
+    const r = buildReport(
+      [
+        exp({ category: 'Food & Dining', amount_usd: 100, status: 'actual' }),
+        exp({ category: 'Accommodation', amount_usd: 650, status: 'planned' }),
+      ],
+      { 'Food & Dining': 1000, Accommodation: 1200 },
+    );
+    const food = r.budget.find((b) => b.category === 'Food & Dining')!;
+    expect(food).toEqual({
+      category: 'Food & Dining',
+      budgetUsd: 1000,
+      actualUsd: 100,
+      plannedUsd: 0,
+      remainingUsd: 900,
+    });
+    expect(r.budgetTotal).toEqual({
+      budgetUsd: 2200,
+      actualUsd: 100,
+      plannedUsd: 650,
+      remainingUsd: 1450,
+    });
+  });
 });

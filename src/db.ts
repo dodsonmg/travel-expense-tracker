@@ -33,6 +33,10 @@ export async function loadOrCreateTrip(): Promise<Trip> {
   return trip;
 }
 
+export async function saveTrip(trip: Trip): Promise<void> {
+  await store.setItem(KEYS.trip, trip);
+}
+
 export async function loadExpenses(): Promise<Expense[]> {
   return (await store.getItem<Expense[]>(KEYS.expenses)) ?? [];
 }

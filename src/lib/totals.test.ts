@@ -52,6 +52,16 @@ describe('totalsByCategory', () => {
     expect(t.gbp).toBe(10);
     expect(t.usd).toBe(25);
   });
+
+  it('excludes planned/reserved expenses', () => {
+    const rows = totalsByCategory([
+      exp({ category: 'Accommodation', amount_gbp: 200, amount_usd: 260, status: 'actual' }),
+      exp({ category: 'Accommodation', amount_gbp: 500, amount_usd: 650, status: 'planned' }),
+    ]);
+    const acc = rows.find((r) => r.category === 'Accommodation')!;
+    expect(acc.gbp).toBe(200);
+    expect(acc.usd).toBe(260);
+  });
 });
 
 describe('grandTotal', () => {
@@ -74,5 +84,12 @@ describe('usdPendingCountsByCategory', () => {
     expect(counts.get('Accommodation')).toBe(2);
     expect(counts.get('Transport')).toBe(0);
     expect(counts.get('Misc')).toBe(0);
+  });
+
+  it('excludes planned/reserved expenses from the pending count', () => {
+    const counts = usdPendingCountsByCategory([
+      exp({ category: 'Accommodation', amount_gbp: 500, amount_usd: null, status: 'planned' }),
+    ]);
+    expect(counts.get('Accommodation')).toBe(0);
   });
 });

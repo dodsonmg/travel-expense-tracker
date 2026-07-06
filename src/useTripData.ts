@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Expense, Trip } from './types';
-import { loadExpenses, loadOrCreateTrip, saveExpenses } from './db';
+import type { Category, Expense, Trip } from './types';
+import { loadExpenses, loadOrCreateTrip, saveExpenses, saveTrip } from './db';
 
 const newId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
@@ -33,6 +33,10 @@ export function useTripData() {
     if (ready.current) void saveExpenses(expenses);
   }, [expenses]);
 
+  useEffect(() => {
+    if (ready.current && trip) void saveTrip(trip);
+  }, [trip]);
+
   const addExpense = useCallback(
     (data: Omit<Expense, 'id' | 'tripId'>) => {
       setExpenses((prev) => [
@@ -53,6 +57,16 @@ export function useTripData() {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
+  const setBudget = useCallback((category: Category, amount: number | null) => {
+    setTrip((t) => {
+      if (!t) return t;
+      const next = { ...(t.budget_usd ?? {}) };
+      if (amount == null) delete next[category];
+      else next[category] = amount;
+      return { ...t, budget_usd: next };
+    });
+  }, []);
+
   return {
     loaded,
     trip,
@@ -60,6 +74,7 @@ export function useTripData() {
     addExpense,
     updateExpense,
     deleteExpense,
+    setBudget,
   };
 }
 

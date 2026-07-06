@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { CATEGORIES, isUsdPending, type Category, type Expense } from '../types';
-import { money } from '../lib/format';
+import { CATEGORIES, isPlanned, isUsdPending, type Category, type Expense } from '../types';
+import { money, parseAmount } from '../lib/format';
 
 interface Props {
   expenses: Expense[];
@@ -8,26 +8,22 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
-function parseAmount(raw: string): number | null {
-  const s = raw.trim();
-  if (s === '') return null;
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
 export function ExpenseList({ expenses, onUpdate, onDelete }: Props) {
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [plannedOnly, setPlannedOnly] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
 
   const sorted = useMemo(
     () =>
       [...expenses]
         .filter((e) => !pendingOnly || isUsdPending(e))
+        .filter((e) => !plannedOnly || isPlanned(e))
         .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)),
-    [expenses, pendingOnly],
+    [expenses, pendingOnly, plannedOnly],
   );
 
   const pendingCount = useMemo(() => expenses.filter(isUsdPending).length, [expenses]);
+  const plannedCount = useMemo(() => expenses.filter(isPlanned).length, [expenses]);
 
   if (expenses.length === 0) {
     return <p className="muted">No expenses yet. Add one from the Entry tab.</p>;
@@ -43,6 +39,14 @@ export function ExpenseList({ expenses, onUpdate, onDelete }: Props) {
             onChange={(e) => setPendingOnly(e.target.checked)}
           />
           <span>USD pending only ({pendingCount})</span>
+        </label>
+        <label className="filter">
+          <input
+            type="checkbox"
+            checked={plannedOnly}
+            onChange={(e) => setPlannedOnly(e.target.checked)}
+          />
+          <span>Planned only ({plannedCount})</span>
         </label>
       </div>
 
@@ -87,6 +91,7 @@ export function ExpenseList({ expenses, onUpdate, onDelete }: Props) {
                     <span className="row__sub">
                       {e.date}
                       {isUsdPending(e) && <span className="badge">USD pending</span>}
+                      {isPlanned(e) && <span className="badge badge--planned">Planned</span>}
                     </span>
                   </div>
                 </div>
@@ -112,6 +117,7 @@ function EditRow({ expense, onSave, onCancel, onDelete }: EditProps) {
   const [gbp, setGbp] = useState(expense.amount_gbp?.toString() ?? '');
   const [usd, setUsd] = useState(expense.amount_usd?.toString() ?? '');
   const [note, setNote] = useState(expense.note);
+  const [planned, setPlanned] = useState(isPlanned(expense));
 
   return (
     <li className="row row--edit">
@@ -160,6 +166,14 @@ function EditRow({ expense, onSave, onCancel, onDelete }: EditProps) {
         <span>Note</span>
         <input type="text" value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
+      <label className="filter">
+        <input
+          type="checkbox"
+          checked={planned}
+          onChange={(e) => setPlanned(e.target.checked)}
+        />
+        <span>Reserved / not yet paid (planned)</span>
+      </label>
       <div className="form__actions">
         <button
           type="button"
@@ -171,6 +185,7 @@ function EditRow({ expense, onSave, onCancel, onDelete }: EditProps) {
               amount_gbp: parseAmount(gbp),
               amount_usd: parseAmount(usd),
               note: note.trim(),
+              status: planned ? 'planned' : 'actual',
             })
           }
         >
