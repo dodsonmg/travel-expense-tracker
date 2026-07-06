@@ -41,10 +41,30 @@ function findRow(
 }
 
 describe('buildXlsx', () => {
-  it('has the expected filename', () => {
-    expect(xlsxFilename(new Date('2026-07-04T12:00:00Z'))).toBe(
-      'trip-expenses-2026-07-04.xlsx',
+  it('has the expected filename, including a slugified trip name', () => {
+    expect(xlsxFilename('My Trip', new Date('2026-07-04T12:00:00Z'))).toBe(
+      'trip-expenses-my-trip-2026-07-04.xlsx',
     );
+  });
+
+  it('falls back to "trip" in the filename for a blank trip name', () => {
+    expect(xlsxFilename('', new Date('2026-07-04T12:00:00Z'))).toBe(
+      'trip-expenses-trip-2026-07-04.xlsx',
+    );
+  });
+
+  it('includes the trip name in the Totals sheet title', async () => {
+    const buf = await buildXlsx([], {}, 'Bali 2027');
+    const wb = await readBack(buf);
+    const ws = wb.getWorksheet('Totals')!;
+    expect(ws.getRow(1).getCell(1).value).toBe('Bali 2027 — Expense Totals');
+  });
+
+  it('falls back to the default Totals sheet title when no trip name is given', async () => {
+    const buf = await buildXlsx([]);
+    const wb = await readBack(buf);
+    const ws = wb.getWorksheet('Totals')!;
+    expect(ws.getRow(1).getCell(1).value).toBe('Trip Expense Totals');
   });
 
   it('produces a Totals sheet, a Budget sheet, and an Expenses sheet', async () => {

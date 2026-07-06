@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { money, today } from './format';
+import { money, today, slugify } from './format';
 
 describe('money', () => {
   it('renders a placeholder for null', () => {
@@ -38,5 +38,21 @@ describe('today', () => {
     } finally {
       Date.prototype.getTimezoneOffset = originalOffset;
     }
+  });
+});
+
+describe('slugify', () => {
+  it('lowercases and hyphenates spaces/punctuation', () => {
+    expect(slugify('London Aug 2026')).toBe('london-aug-2026');
+  });
+
+  it('trims leading/trailing hyphens produced by leading/trailing punctuation', () => {
+    expect(slugify('  --Bali!! 2027--  ')).toBe('bali-2027');
+  });
+
+  it('falls back to "trip" for empty or all-punctuation input', () => {
+    expect(slugify('')).toBe('trip');
+    expect(slugify('   ')).toBe('trip');
+    expect(slugify('!!!')).toBe('trip');
   });
 });
