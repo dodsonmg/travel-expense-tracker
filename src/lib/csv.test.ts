@@ -25,19 +25,25 @@ describe('buildCsv', () => {
   it('writes money as plain 2-dp numbers, blank when absent', () => {
     const csv = buildCsv([exp({ amount_gbp: 80, amount_usd: null })]);
     const line = csv.split('\r\n').find((l) => l.startsWith('2026-07-01'))!;
-    // date,category,amount_gbp,amount_usd,usd_pending,note
-    expect(line).toBe('2026-07-01,Accommodation,80.00,,yes,');
+    // date,category,amount_gbp,amount_usd,usd_pending,planned,note
+    expect(line).toBe('2026-07-01,Accommodation,80.00,,yes,,');
   });
 
   it('flags USD-pending rows (GBP present, USD absent)', () => {
     const csv = buildCsv([exp({ amount_gbp: 5, amount_usd: null })]);
-    expect(csv).toMatch(/,yes,/);
+    expect(csv).toMatch(/,yes,,/);
   });
 
   it('does not flag rows once USD is filled in', () => {
     const csv = buildCsv([exp({ amount_gbp: 5, amount_usd: 6 })]);
     const line = csv.split('\r\n').find((l) => l.startsWith('2026-07-01'))!;
-    expect(line).toBe('2026-07-01,Accommodation,5.00,6.00,,');
+    expect(line).toBe('2026-07-01,Accommodation,5.00,6.00,,,');
+  });
+
+  it('flags planned/reserved rows', () => {
+    const csv = buildCsv([exp({ amount_usd: 650, status: 'planned' })]);
+    const line = csv.split('\r\n').find((l) => l.startsWith('2026-07-01'))!;
+    expect(line).toBe('2026-07-01,Accommodation,,650.00,,yes,');
   });
 
   it('escapes commas and quotes in notes', () => {
@@ -53,6 +59,30 @@ describe('buildCsv', () => {
     expect(lines).toContain('category,gbp,usd,usd_pending_count');
     expect(lines).toContain('Transport,10.00,12.00,');
     expect(lines).toContain('TOTAL,10.00,12.00,');
+  });
+
+  it('excludes planned expenses from the totals-by-category block', () => {
+    const csv = buildCsv([
+      exp({ category: 'Accommodation', amount_gbp: 500, amount_usd: 650, status: 'planned' }),
+    ]);
+    const lines = csv.split('\r\n');
+    expect(lines).toContain('Accommodation,0.00,0.00,');
+  });
+
+  it('includes a budget-vs-actual block reflecting actual, planned, and remaining', () => {
+    const csv = buildCsv(
+      [
+        exp({ category: 'Food & Dining', amount_usd: 100, status: 'actual' }),
+        exp({ category: 'Accommodation', amount_usd: 650, status: 'planned' }),
+      ],
+      { 'Food & Dining': 1000, Accommodation: 1200 },
+    );
+    const lines = csv.split('\r\n');
+    expect(lines).toContain('BUDGET VS ACTUAL');
+    expect(lines).toContain('category,budget_usd,actual_usd,planned_usd,remaining_usd');
+    expect(lines).toContain('Food & Dining,1000.00,100.00,0.00,900.00');
+    expect(lines).toContain('Accommodation,1200.00,0.00,650.00,550.00');
+    expect(lines).toContain('TOTAL,2200.00,100.00,650.00,1450.00');
   });
 });
 

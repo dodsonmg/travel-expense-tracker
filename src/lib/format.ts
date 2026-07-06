@@ -14,6 +14,14 @@ export function money(amount: number | null, currency: Currency): string {
   return (currency === 'GBP' ? gbp : usd).format(amount);
 }
 
+// Parse a currency input: blank -> null, otherwise a non-negative number.
+export function parseAmount(raw: string): number | null {
+  const s = raw.trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 // Today's local date as YYYY-MM-DD (for the entry-form default).
 export function today(): string {
   const d = new Date();

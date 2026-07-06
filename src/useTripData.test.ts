@@ -17,6 +17,7 @@ const storedExpenses: Expense[] = [
 ];
 
 const saveExpenses = vi.fn();
+const saveTrip = vi.fn();
 
 // db.ts talks to IndexedDB, which jsdom doesn't implement. Mock it so the
 // hook's own state-management logic (load-once, add/update/delete, persist
@@ -25,10 +26,12 @@ vi.mock('./db', () => ({
   loadOrCreateTrip: () => Promise.resolve(trip),
   loadExpenses: () => Promise.resolve(storedExpenses),
   saveExpenses: (e: Expense[]) => saveExpenses(e),
+  saveTrip: (t: Trip) => saveTrip(t),
 }));
 
 beforeEach(() => {
   saveExpenses.mockClear();
+  saveTrip.mockClear();
 });
 
 describe('useTripData', () => {
@@ -92,6 +95,7 @@ describe('useTripData', () => {
     renderHook(() => useTripData());
     // Synchronously after mount, the load promise hasn't resolved yet.
     expect(saveExpenses).not.toHaveBeenCalled();
+    expect(saveTrip).not.toHaveBeenCalled();
   });
 
   it('persists expense changes after the initial load', async () => {
@@ -104,5 +108,36 @@ describe('useTripData', () => {
     });
 
     await waitFor(() => expect(saveExpenses).toHaveBeenCalledWith([]));
+  });
+
+  it('setBudget sets a category budget and persists the trip', async () => {
+    const { result } = renderHook(() => useTripData());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    saveTrip.mockClear();
+
+    act(() => {
+      result.current.setBudget('Food & Dining', 1000);
+    });
+
+    expect(result.current.trip?.budget_usd).toEqual({ 'Food & Dining': 1000 });
+    await waitFor(() =>
+      expect(saveTrip).toHaveBeenCalledWith(
+        expect.objectContaining({ budget_usd: { 'Food & Dining': 1000 } }),
+      ),
+    );
+  });
+
+  it('setBudget with null clears a category budget', async () => {
+    const { result } = renderHook(() => useTripData());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    act(() => {
+      result.current.setBudget('Food & Dining', 1000);
+    });
+    act(() => {
+      result.current.setBudget('Food & Dining', null);
+    });
+
+    expect(result.current.trip?.budget_usd).toEqual({});
   });
 });

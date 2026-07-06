@@ -1,4 +1,4 @@
-import type { Expense } from '../types';
+import type { Category, Expense } from '../types';
 import { buildReport } from './report';
 
 export const XLSX_MIME =
@@ -16,14 +16,25 @@ const headFill = () =>
 // still needs a USD amount backfilled.
 const pendingFill = () =>
   ({ type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7EFC0' } }) as const;
+// A planned/reserved expense hasn't been incurred yet — distinct highlight
+// from USD-pending so the two aren't confused.
+const plannedFill = () =>
+  ({ type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0EAFB' } }) as const;
+// Over-budget rows on the Budget sheet (remaining < 0).
+const overBudgetFill = () =>
+  ({ type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF6D0D0' } }) as const;
 
 // A formatted workbook: a Totals sheet (by category, USD-pending rows
-// highlighted) followed by an Expenses sheet (raw rows). ExcelJS is heavy, so
-// it's dynamically imported here to stay out of the main bundle; the split
-// chunk is still precached for offline export.
-export async function buildXlsx(expenses: Expense[]): Promise<ArrayBuffer> {
+// highlighted, actual spend only), a Budget sheet (over-budget rows
+// highlighted), followed by an Expenses sheet (raw rows). ExcelJS is heavy,
+// so it's dynamically imported here to stay out of the main bundle; the
+// split chunk is still precached for offline export.
+export async function buildXlsx(
+  expenses: Expense[],
+  budget: Partial<Record<Category, number>> = {},
+): Promise<ArrayBuffer> {
   const { default: ExcelJS } = await import('exceljs');
-  const report = buildReport(expenses);
+  const report = buildReport(expenses, budget);
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Travel Expense Tracker';
@@ -67,6 +78,45 @@ export async function buildXlsx(expenses: Expense[]): Promise<ArrayBuffer> {
   totalRow.getCell(2).numFmt = MONEY_FMT;
   totalRow.getCell(3).numFmt = MONEY_FMT;
 
+  // --- Budget sheet: budget vs. actual vs. planned, by category ---
+  const budgetSheet = wb.addWorksheet('Budget');
+  budgetSheet.columns = [16, 12, 12, 12, 14].map((width) => ({ width }));
+
+  const budgetHeader = budgetSheet.addRow([
+    'Category',
+    'Budget',
+    'Actual',
+    'Planned',
+    'Remaining',
+  ]);
+  budgetHeader.font = { bold: true };
+  for (let i = 1; i <= 5; i++) budgetHeader.getCell(i).fill = headFill();
+
+  for (const b of report.budget) {
+    const overBudget = b.remainingUsd < 0;
+    const budgetRow = budgetSheet.addRow([
+      b.category,
+      b.budgetUsd,
+      b.actualUsd,
+      b.plannedUsd,
+      b.remainingUsd,
+    ]);
+    for (let i = 2; i <= 5; i++) budgetRow.getCell(i).numFmt = MONEY_FMT;
+    if (overBudget) {
+      for (let i = 1; i <= 5; i++) budgetRow.getCell(i).fill = overBudgetFill();
+    }
+  }
+
+  const budgetTotalRow = budgetSheet.addRow([
+    'TOTAL',
+    report.budgetTotal.budgetUsd,
+    report.budgetTotal.actualUsd,
+    report.budgetTotal.plannedUsd,
+    report.budgetTotal.remainingUsd,
+  ]);
+  budgetTotalRow.font = { bold: true };
+  for (let i = 2; i <= 5; i++) budgetTotalRow.getCell(i).numFmt = MONEY_FMT;
+
   // --- Expenses sheet: raw rows ---
   const exp = wb.addWorksheet('Expenses');
   exp.columns = [
@@ -75,6 +125,7 @@ export async function buildXlsx(expenses: Expense[]): Promise<ArrayBuffer> {
     { header: 'GBP', width: 10 },
     { header: 'USD', width: 10 },
     { header: 'USD pending', width: 12 },
+    { header: 'Planned', width: 10 },
     { header: 'Note', width: 28 },
   ];
   exp.getRow(1).font = { bold: true };
@@ -85,12 +136,15 @@ export async function buildXlsx(expenses: Expense[]): Promise<ArrayBuffer> {
       e.amountGbp,
       e.amountUsd,
       e.usdPending ? 'yes' : '',
+      e.planned ? 'yes' : '',
       e.note,
     ]);
     row.getCell(3).numFmt = MONEY_FMT;
     row.getCell(4).numFmt = MONEY_FMT;
     if (e.usdPending) {
-      for (let i = 1; i <= 6; i++) row.getCell(i).fill = pendingFill();
+      for (let i = 1; i <= 7; i++) row.getCell(i).fill = pendingFill();
+    } else if (e.planned) {
+      for (let i = 1; i <= 7; i++) row.getCell(i).fill = plannedFill();
     }
   }
 

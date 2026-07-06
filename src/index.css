@@ -327,6 +327,10 @@ select:focus {
   padding: 0.05rem 0.35rem;
   font-size: 0.68rem;
 }
+.badge--planned {
+  background: rgba(93, 188, 210, 0.16);
+  color: var(--accent);
+}
 
 /* ---- Totals table ---- */
 h2 {
@@ -349,6 +353,10 @@ h2 {
   font-weight: 500;
   font-size: 0.78rem;
 }
+.totals .num input {
+  text-align: right;
+  padding: 0.35rem 0.4rem;
+}
 .totals .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -368,4 +376,8 @@ h2 {
 .tag--warn {
   color: var(--warn);
   border-color: var(--warn);
+}
+.tag--over {
+  color: var(--danger);
+  border-color: var(--danger);
 }

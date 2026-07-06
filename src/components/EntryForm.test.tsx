@@ -30,8 +30,36 @@ describe('EntryForm', () => {
         category: 'Food & Dining',
         amount_gbp: null,
         amount_usd: 100.5,
+        status: 'actual',
       }),
     );
+  });
+
+  it('submits status "planned" when the reserved checkbox is checked', async () => {
+    const user = userEvent.setup();
+    const onAdd = vi.fn();
+    render(<EntryForm onAdd={onAdd} onDone={vi.fn()} />);
+
+    await user.type(screen.getByLabelText(/USD/i), '650');
+    await user.click(screen.getByLabelText(/reserved.*not yet paid/i));
+    await user.click(screen.getByRole('button', { name: /save & add another/i }));
+
+    expect(onAdd).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'planned' }),
+    );
+  });
+
+  it('resets the reserved checkbox after saving', async () => {
+    const user = userEvent.setup();
+    render(<EntryForm onAdd={vi.fn()} onDone={vi.fn()} />);
+
+    await user.type(screen.getByLabelText(/USD/i), '650');
+    const checkbox = screen.getByLabelText(/reserved.*not yet paid/i) as HTMLInputElement;
+    await user.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+    await user.click(screen.getByRole('button', { name: /save & add another/i }));
+
+    expect(checkbox.checked).toBe(false);
   });
 
   it('clears amounts and note after saving, but keeps date/category for fast repeat entry', async () => {

@@ -1,4 +1,4 @@
-import type { Expense } from '../types';
+import type { Category, Expense } from '../types';
 import { buildReport } from './report';
 
 // Hand-rolled CSV (no dependency, per SPEC.md). Excel/Sheets-safe escaping.
@@ -18,14 +18,19 @@ function num(amount: number | null): string {
   return amount == null ? '' : amount.toFixed(2);
 }
 
-// One file: raw rows first, then a totals-by-category block, then a grand
-// total.
-export function buildCsv(expenses: Expense[]): string {
-  const report = buildReport(expenses);
+// One file: raw rows first, then a totals-by-category block (actual spend
+// only), then a grand total, then a budget-vs-actual block.
+export function buildCsv(
+  expenses: Expense[],
+  budget: Partial<Record<Category, number>> = {},
+): string {
+  const report = buildReport(expenses, budget);
   const lines: string[] = [];
 
   lines.push('EXPENSES');
-  lines.push(row(['date', 'category', 'amount_gbp', 'amount_usd', 'usd_pending', 'note']));
+  lines.push(
+    row(['date', 'category', 'amount_gbp', 'amount_usd', 'usd_pending', 'planned', 'note']),
+  );
   for (const e of report.expenses) {
     lines.push(
       row([
@@ -34,6 +39,7 @@ export function buildCsv(expenses: Expense[]): string {
         num(e.amountGbp),
         num(e.amountUsd),
         e.usdPending ? 'yes' : '',
+        e.planned ? 'yes' : '',
         e.note,
       ]),
     );
@@ -46,6 +52,24 @@ export function buildCsv(expenses: Expense[]): string {
     lines.push(row([r.category, num(r.gbp), num(r.usd), r.usdPendingCount || '']));
   }
   lines.push(row(['TOTAL', num(report.grandTotal.gbp), num(report.grandTotal.usd), '']));
+
+  lines.push('');
+  lines.push('BUDGET VS ACTUAL');
+  lines.push(row(['category', 'budget_usd', 'actual_usd', 'planned_usd', 'remaining_usd']));
+  for (const b of report.budget) {
+    lines.push(
+      row([b.category, num(b.budgetUsd), num(b.actualUsd), num(b.plannedUsd), num(b.remainingUsd)]),
+    );
+  }
+  lines.push(
+    row([
+      'TOTAL',
+      num(report.budgetTotal.budgetUsd),
+      num(report.budgetTotal.actualUsd),
+      num(report.budgetTotal.plannedUsd),
+      num(report.budgetTotal.remainingUsd),
+    ]),
+  );
 
   return lines.join('\r\n');
 }
