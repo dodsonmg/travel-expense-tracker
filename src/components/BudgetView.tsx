@@ -23,8 +23,13 @@ export function BudgetView({ expenses, budget, onSetBudget }: Props) {
         <div className="budget-tile__head">
           <span className="budget-tile__cat">Total</span>
         </div>
-        <div className="budget-tile__stats budget-tile__stats--total">
-          <Stat label="Budget" value={money(total.budgetUsd, 'USD')} />
+
+        <div className="field budget-tile__budget">
+          <span>Budget (USD)</span>
+          <span className="budget-tile__budget-value">{money(total.budgetUsd, 'USD')}</span>
+        </div>
+
+        <div className="budget-tile__stats">
           <Stat label="Actual" value={money(total.actualUsd, 'USD')} />
           <Stat label="Planned" value={money(total.plannedUsd, 'USD')} />
           <Stat
