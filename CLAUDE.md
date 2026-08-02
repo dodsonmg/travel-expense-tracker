@@ -28,33 +28,54 @@ npm test           # vitest run
 
 - `src/types.ts` — domain types + the fixed `CATEGORIES` list/order (Transport,
   Accommodation, Food & Dining, Pet Sitting, Entertainment, Misc), `Trip`
-  (incl. `budget_usd`), `Expense` (incl. `status`), `isUsdPending`,
-  `isPlanned`. Single source of truth for the data model.
-- `src/db.ts` — IndexedDB load/save, keyed by trip. Two global keys hold the
-  `trips: Trip[]` registry and the `activeTripId`; each trip's expenses live
-  under a `trip:<id>:expenses`-prefixed key. `ensureInitialized()` runs once
-  on load: a no-op if the registry already exists, otherwise migrates the old
-  pre-multi-trip flat `'trip'`/`'expenses'` keys into a trip that keeps its
-  original id/name/`budget_usd` (or synthesizes a default trip on a genuinely
-  fresh install). Legacy keys are read once and never deleted.
+  (incl. `budget_usd`, `archived`), `Expense` (incl. `status`),
+  `isUsdPending`, `isPlanned`. Single source of truth for the data model.
+- `src/db.ts` — IndexedDB load/save, keyed by trip. Global keys hold the
+  `trips: Trip[]` registry, the `activeTripId`, and `lastBackup` (a `{ at,
+  expenseCount }` snapshot the backup nudge compares against); each trip's
+  expenses live under a `trip:<id>:expenses`-prefixed key. `ensureInitialized()`
+  runs once on load: a no-op if the registry already exists, otherwise
+  migrates the old pre-multi-trip flat `'trip'`/`'expenses'` keys into a trip
+  that keeps its original id/name/`budget_usd` (or synthesizes a default trip
+  on a genuinely fresh install). Legacy keys are read once and never deleted.
 - `src/useTrips.ts` — owns the trip registry: `trips`, `activeTripId`,
-  create/rename/delete/select, and `setBudget(tripId, category, amount)`
-  (since `budget_usd` lives on `Trip`). A device always has ≥1 trip —
-  `deleteTrip` no-ops on the last remaining one.
+  create/rename/delete/select, `setBudget(tripId, category, amount)` (since
+  `budget_usd` lives on `Trip`), and `setArchived(id, archived)`. A device
+  always has ≥1 trip — `deleteTrip` no-ops on the last remaining one,
+  regardless of archived status.
 - `src/useTripData.ts` — parameterized by `tripId`; owns just that trip's
   `expenses` (load/save/add/update/delete), reloading whenever the active
   trip changes. `App` composes `useTrips()` + `useTripData(activeTripId)` and
   passes slices down; components are otherwise presentational.
+- `src/useAllTripsData.ts` — read-only, cross-trip counterpart to
+  `useTripData`: loads every given trip's expenses (keyed by trip id) for the
+  Rollup tab and the backup nudge's edit count. Never persists. `App` patches
+  in the active trip's live edits via `setExpensesForTrip` so Rollup doesn't
+  go stale between trip switches.
+- `src/useBackup.ts` — the IO layer for full JSON backup/restore:
+  `exportBackup()` does an authoritative fresh read of storage; `restoreBackup
+  (rawText)` validates before writing anything (no partial write on a
+  malformed file).
+- `src/useBackupNudge.ts` — nudges toward a backup only once both a day and
+  an edit-count threshold since the last one are crossed; `dismiss()` is
+  session-only, `markBackedUp()` resets both baselines.
 - `src/lib/` — pure functions, no React:
   - `totals.ts` — by-category totals, grand total, USD-pending counts.
     Actual-only (excludes `status: 'planned'` expenses).
   - `budget.ts` — by-category budget vs. actual vs. planned vs. remaining,
-    consumed by `BudgetView` and threaded into `report.ts`.
+    consumed by `BudgetView` and threaded into `report.ts`; also
+    `tripBudgetTotal`/`sumBudgetTotals`, the per-trip/cross-trip figures
+    `RollupView` consumes.
+  - `backup.ts` — the full JSON backup file format (versioned,
+    round-trippable) and its validation — distinct from `report.ts`, which is
+    lossy/single-trip/display-oriented.
   - `report.ts` — one structured export model consumed by both exporters, so
     CSV and XLSX never drift.
   - `csv.ts` — CSV export document.
   - `xlsx.ts` — formatted `.xlsx` (ExcelJS, dynamically imported to stay out
     of the main bundle).
+  - `share.ts` — `downloadBlob`/`shareBlob` (Web Share API with a download
+    fallback), shared by `ExportView` and `BackupPanel`.
   - `format.ts` — currency + date helpers.
   - `pwaRegister.ts` — re-exports `useRegisterSW` from
     `virtual:pwa-register/react`. Exists purely so tests can `vi.mock` a real
@@ -62,9 +83,14 @@ npm test           # vitest run
     `vitest.config.ts` (no `VitePWA` plugin there), so mocking it directly
     fails at Vite's import-analysis step before `vi.mock` ever applies.
 - `src/components/` — one file per screen: `EntryForm`, `ExpenseList`,
-  `TotalsView`, `BudgetView`, `ExportView`, plus `TripSwitcher` (the header
-  trip create/rename/switch/delete control — not a 6th tab). `App.tsx` is the
-  tab shell; it also mounts `UpdateToast`.
+  `TotalsView`, `BudgetView`, `RollupView`, `ExportView`, plus `TripSwitcher`
+  (the header trip create/rename/switch/delete/archive control — not a tab),
+  `UpdateToast`, and `BackupNudgeToast`. `RollupView` shows one budget tile
+  per non-archived trip plus a grand total; tapping a tile switches trips and
+  jumps to Budget. `BackupPanel` (rendered inside `ExportView`, not a
+  separate tab) holds the full backup/restore UI. `App.tsx` is the tab shell
+  (Entry/List/Totals/Budget/Rollup/Export); it also mounts `UpdateToast` and
+  `BackupNudgeToast`.
 
 ## Domain invariants — get these wrong and the tool is misleading
 
@@ -108,6 +134,12 @@ npm test           # vitest run
    so each trip carries its own budget automatically when switched to;
    `useTrips.setBudget(tripId, category, amount)` is the only place that
    mutates it.
+9. **Archiving a trip never deletes its data.** `Trip.archived` just hides it
+   from `TripSwitcher`'s default list and from the Rollup tab's totals — it
+   stays reachable via "Show archived," remains fully usable if it's the
+   active trip, and is orthogonal to `deleteTrip`'s "at least one trip"
+   invariant (which counts all trips regardless of archived status).
+   `useTrips.setArchived(id, archived)` is the only place that mutates it.
 
 ## Export contract
 
@@ -124,6 +156,22 @@ actual-only), a **Budget** sheet (over-budget rows highlighted), then an
 **Expenses** sheet (raw rows, USD-pending and planned rows highlighted).
 Both exporters must render from `buildReport` so they never diverge. ExcelJS
 is dynamically imported; keep it out of any statically-loaded module.
+
+## Backup format
+
+Distinct from the CSV/`.xlsx` exports above, which are lossy, single-trip,
+and display-oriented. `lib/backup.ts` defines a full, round-trippable JSON
+snapshot (`BackupFileV1`: `format`, `version`, `exportedAt`, `activeTripId`,
+`trips`, and `expenses` keyed by trip id) covering every trip on the device.
+`useBackup.ts`'s `exportBackup()` always re-reads storage fresh rather than
+trusting any in-memory cache; `restoreBackup()` validates before writing
+anything, so a malformed file can't cause a partial write. Restoring is a
+full replace (not a merge), confirmed via a two-step "can't be undone" card
+(same idiom as trip delete) before it overwrites device data and reloads.
+`BackupPanel` (inside `ExportView`) is the only UI surface for this;
+`BackupNudgeToast` (mirroring `UpdateToast`'s mount point/styling) nudges
+toward it once both a day and an edit-count threshold since the last backup
+are crossed, resettable via `markBackedUp()`.
 
 ## PWA behavior
 
@@ -154,6 +202,8 @@ MVP (this scaffold) is Phase 1 in `SPEC.md`. Phase 2 is budgeting: a
 per-category USD ceiling (`Trip.budget_usd`) plus a `status: 'planned' |
 'actual'` field on `Expense` for unpaid commitments, compared on a new Budget
 view/export (invariants 2a, 8). Phase 3 (multi-trip) is done — see
-invariant 6 and the `db.ts`/`useTrips.ts` bullets above. Phase 4 is
-backup/restore and receipt photos. Don't pull that work forward without
-being asked.
+invariant 6 and the `db.ts`/`useTrips.ts` bullets above. Phase 4's
+backup/restore is done (invariant 9, the Backup format section above); its
+other item, receipt photos, is not. Trip archiving + the Rollup tab (also
+done) were added beyond the original phased plan — see SPEC.md's Phase 5.
+Don't pull receipt photos forward without being asked.

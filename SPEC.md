@@ -57,6 +57,7 @@ rename, switch between, and delete trips.
 | `name`       | user-editable, shown in the header trip switcher                    |
 | `createdAt`  | ISO timestamp                                                        |
 | `budget_usd` | optional, per-category USD ceiling (Phase 2); absent = not set yet    |
+| `archived`   | optional, `true` once retired (Phase 5); absent = active            |
 
 `budget_usd` is a map keyed by category (a subset of the 6 fixed categories
 may be set; the rest are treated as no budget / $0 ceiling). It lives on
@@ -118,7 +119,9 @@ in the List view (with their own filter/badge) and in the Budget view below.
    and a "Planned" badge alongside the existing USD-pending badge.
 3. **Totals** — by-category table described above (actual spend only as of
    Phase 2).
-4. **Export** — one tap → CSV and/or formatted `.xlsx` (see below).
+4. **Export** — one tap → CSV and/or formatted `.xlsx` (see below). Phase 4
+   adds a Backup panel here too (full JSON backup/restore — see "Full
+   backup/restore" below), distinct from the CSV/`.xlsx` exports.
 5. **Budget** (Phase 2) — by-category table: BUDGET (editable USD ceiling per
    category), ACTUAL (sum of `'actual'` expenses' `amount_usd`), PLANNED (sum
    of `'planned'` expenses' `amount_usd`), REMAINING (`BUDGET − ACTUAL −
@@ -127,6 +130,10 @@ in the List view (with their own filter/badge) and in the Budget view below.
    GBP→USD fallback, keeping the "never mix currencies" rule intact here too.
    A category with no budget set shows `$0.00` and goes negative as soon as
    anything is spent/planned against it.
+6. **Rollup** (Phase 5) — one tile per non-archived trip showing that trip's
+   Budget/Actual/Planned/Remaining (same shape as the Budget tab's Total
+   tile), plus a grand total across all of them. Tapping a tile switches to
+   that trip and opens its Budget tab.
 
 No Help/FAQ tab in the MVP — there's no DTS-specific domain vocabulary to
 teach (no "USD pending vs. incomplete vs. mismatch," no M&IE vs. MILEAGE). If
@@ -153,6 +160,19 @@ drift from each other, same pattern as the reference app.
 
 Shared via the Web Share API where available (mobile share sheet), with a
 plain download fallback — same as the reference app.
+
+### Full backup/restore (Phase 4)
+
+Distinct from the CSV/`.xlsx` exports above, which are single-trip and
+lossy/display-oriented (formatted for reading, not restoring). A separate
+**Backup** panel (inside the Export tab, not a separate screen) offers a
+full, round-trippable JSON snapshot of every trip and every expense on the
+device, versioned so old backups keep working as the format evolves.
+Restoring is a full replace of device data — gated by a confirm step
+("can't be undone," same idiom as trip delete) — not a merge. A dismissible
+toast (mirroring the PWA update toast) nudges toward a backup once it's been
+a while *and* enough has changed since the last one, so light users aren't
+nagged.
 
 ## Tech stack
 
@@ -212,9 +232,27 @@ Same as `dts-expense-tracker`, minus what's not needed:
     construction (they only ever see the active trip's expenses), and
     filenames/the `.xlsx` Totals sheet title fold in the active trip's name
     (slugified for filenames) so multiple trips' exports don't look
-    identical. No separate trip list/summary screen — the header switcher's
-    open panel already is one.
+    identical. (At the time, no separate trip list/summary screen existed —
+    the header switcher's open panel was the closest thing to one; Phase 5
+    below adds a real one.)
 
-**Phase 4 — nice-to-haves (not committed)**
-11. Backup/restore all data as a file.
-12. Receipt photos.
+**Phase 4 — data safety**
+11. ~~Backup/restore all data as a file.~~ **Done** — see "Full backup/restore"
+    above: a versioned, round-trippable JSON snapshot of every trip and
+    expense, restorable as a full replace (confirm-gated), plus a dismissible
+    nudge toast once both a time and an edit-count threshold since the last
+    backup are crossed.
+12. Receipt photos. (not committed — don't pull this forward without being
+    asked)
+
+**Phase 5 — trip archiving & rollup**
+13. ~~Archive/unarchive a trip.~~ **Done** — `Trip.archived` (additive, no
+    migration). Archived trips are hidden from the header switcher's default
+    list (revealed via "Show archived") and from the Rollup below, but never
+    deleted and remain fully usable if still active — orthogonal to trip
+    deletion, which still requires keeping at least one trip regardless of
+    archived status.
+14. ~~A cross-trip rollup/summary view.~~ **Done** — a new Rollup tab shows
+    one tile per non-archived trip (Budget/Actual/Planned/Remaining, same
+    shape as the Budget tab's Total tile) plus a grand total across all of
+    them; tapping a trip's tile switches to it and opens its Budget tab.

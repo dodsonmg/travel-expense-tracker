@@ -38,6 +38,12 @@ typecheck, test, build) on every push/PR.
   (`remainingUsd < 0`) as soon as anything is spent/planned against it.
 - `budgetGrandTotal` sums budget/actual/planned/remaining across all
   categories.
+- `tripBudgetTotal(expenses, budget)` matches
+  `budgetGrandTotal(budgetByCategory(expenses, budget))` in one call — the
+  per-trip figure the Rollup tab consumes.
+- `sumBudgetTotals` sums budget/actual/planned/remaining across trips'
+  `BudgetTotal`s (the Rollup tab's grand-total tile); an empty list returns
+  all zeros.
 
 ### `format.ts`
 - `money(null, currency)` renders a placeholder (e.g. "—"), not "NaN" or "$0".
@@ -83,6 +89,21 @@ typecheck, test, build) on every push/PR.
   (e.g. "Bali 2027 — Expense Totals"), falling back to the generic "Trip
   Expense Totals" when it isn't.
 
+### `backup.ts` (full JSON backup/restore format)
+- `buildBackupFile(trips, expensesByTripId, activeTripId)` builds a snapshot
+  with the correct `format`/`version` constants and carries every trip and
+  its expenses through unchanged.
+- `validateBackupFile` accepts a well-formed file and returns it unchanged;
+  is lenient about a trip missing its own `expenses` entry (defaults `[]`);
+  falls back `activeTripId` to the first trip when missing/not among the
+  file's own trips.
+- `validateBackupFile` rejects, each with a specific message: non-object
+  input, the wrong `format`, a `version` newer than supported, an empty or
+  non-array `trips` list, and a trip missing required fields (`id`/`name`/
+  `createdAt`).
+- `backupFilename()` embeds today's date; unlike `csvFilename`/`xlsxFilename`
+  it carries no trip-name slug, since a backup spans every trip.
+
 ### `report.ts` (shared export model)
 - CSV and XLSX both build from the same `buildReport()` output for a given
   expense list — assert both exporters' totals match the same input rather
@@ -111,6 +132,39 @@ typecheck, test, build) on every push/PR.
 - Persistence is skipped until the initial load completes (guards against the
   empty initial state overwriting real stored data) — covers `saveExpenses`.
   `budget_usd` persistence (`setBudget`) has moved to `useTrips` — see §6.
+- `loadLastBackup`/`saveLastBackup` round-trip a `{ at, expenseCount }`
+  record; `loadLastBackup` returns `null` when never backed up.
+
+### `useAllTripsData` (read-only, cross-trip)
+- Loads every given trip's expenses, keyed by trip id.
+- `setExpensesForTrip(tripId, expenses)` patches one trip's entry in place
+  without touching any other trip's cached expenses.
+- Adding or removing a trip (a changed id set) triggers a refetch; an
+  unrelated change to the `trips` array (rename, budget edit, archive — same
+  ids, new array reference) does not.
+
+### `useBackup` (export/restore IO)
+- `exportBackup()` does an authoritative fresh read of storage — reflects
+  whatever is actually saved across every trip, not a UI-side cache.
+- `restoreBackup(rawText)` writes `trips`/`expenses`/`activeTripId` matching
+  the input file exactly.
+- Malformed JSON, or JSON failing `validateBackupFile`, throws and writes
+  nothing (no partial `saveTrips`/`saveExpenses` call) — guards against a bad
+  file corrupting existing data.
+- An `activeTripId` in the file not present among its own trips falls back
+  to the file's first trip.
+
+### `useBackupNudge`
+- Never backed up + few expenses → doesn't nudge; never backed up + many
+  expenses → nudges (edit-count threshold alone, since "never" always clears
+  the time threshold).
+- Recent backup + many edits but under the day threshold → doesn't nudge;
+  old backup + few edits → doesn't nudge — both thresholds must be crossed
+  together.
+- `dismiss()` doesn't persist: a fresh hook instance (e.g. next app load)
+  still evaluates `shouldNudge` true if still overdue.
+- `markBackedUp()` resets both the day and edit-count baselines so
+  `shouldNudge` goes false immediately.
 
 ## 3. Components (Testing Library)
 
@@ -167,6 +221,35 @@ typecheck, test, build) on every push/PR.
 - Busy state disables buttons during async `.xlsx` generation and clears
   after success or failure; a failed export shows an error message rather
   than throwing.
+- Renders the `BackupPanel` below the per-trip exports.
+
+### `RollupView`
+- Renders one tile per non-archived trip, in fixed registry order, each
+  showing that trip's Budget/Actual/Planned/Remaining (matching `BudgetView`'s
+  Total tile) plus a grand-total tile summing across all of them.
+- An archived trip is excluded from both the per-trip tiles and the grand
+  total; if every trip is archived, shows an empty-state message instead.
+- Tapping a trip's tile calls `onSelectTrip` with its id (App.tsx wires this
+  to switch the active trip and jump to the Budget tab).
+- Shows a loading state before `loaded` is true.
+
+### `BackupPanel`
+- Shows "Last backup: never" when no backup has been made; a relative-time
+  string ("N days ago") once one has.
+- "Download backup (.json)" calls `exportBackup()`, triggers a download, and
+  calls `onBackedUp()`.
+- Selecting a file that isn't valid JSON, or that fails `validateBackupFile`,
+  shows a specific error message and does not show the restore confirm card.
+- Selecting a well-formed backup file shows a confirm card ("can't be
+  undone") before calling `restoreBackup` — confirming calls it (then
+  `onBackedUp()` and reloads); canceling dismisses the card without calling
+  it.
+
+### `BackupNudgeToast`
+- Renders nothing when not `visible`.
+- Shows a day count when visible with a finite `daysSinceBackup`; shows a
+  distinct "never backed up" message when it's `Infinity`.
+- "Back up now" calls `onGoToBackup`; the dismiss button calls `onDismiss`.
 
 ## 4. Trip switching (`db.ts`, `useTrips.ts`, `TripSwitcher`)
 
@@ -201,6 +284,13 @@ typecheck, test, build) on every push/PR.
 - `setBudget(tripId, category, amount)` patches only the targeted trip's
   `budget_usd`; `amount: null` clears a category's entry; other trips'
   budgets are unaffected.
+- `setArchived(id, archived)` patches only the targeted trip's `archived`
+  flag. Archiving the active trip reassigns `activeTripId` to a remaining
+  non-archived trip when one exists; archiving the last non-archived trip
+  leaves `activeTripId` unchanged (an archived-and-active trip keeps working
+  normally). Unarchiving just clears the flag. `deleteTrip` still refuses at
+  exactly one trip regardless of archived status — archiving is orthogonal
+  to, not a substitute for, the "at least one trip" invariant.
 
 ### `TripSwitcher` component
 - Closed by default, showing the active trip's name on the toggle button.
@@ -213,6 +303,10 @@ typecheck, test, build) on every push/PR.
 - Delete requires a second confirmation step (a "can't be undone" card) before
   calling `onDelete`; the initial "Delete" click alone must not call it.
 - Delete is disabled (with an explanatory tooltip) when only one trip exists.
+- Archived trips are hidden from the default list, revealed via a "Show
+  archived (N)" toggle; "Archive"/"Unarchive" call `onSetArchived` with the
+  right boolean — archiving requires no confirmation step (unlike Delete),
+  since it's reversible and non-destructive.
 
 ## 5. Manual / PWA verification (not automatable, or not worth automating)
 
@@ -244,6 +338,29 @@ a built app):
 - Load the app with data seeded under the old pre-multi-trip flat keys (e.g.
   via devtools IndexedDB) and confirm `ensureInitialized` migrates it into
   trip #1 without data loss.
+- Rollup accuracy: create 2+ trips with distinct budgets/expenses (a mix of
+  actual and planned); for each trip, record its Budget tab Total tile, then
+  confirm the Rollup tab's tile for that trip matches exactly, and the
+  grand-total tile equals their sum. Add an expense via Entry on the active
+  trip and switch straight to Rollup (no trip create/delete in between) —
+  confirm it's reflected immediately.
+- Archive/unarchive round-trip: archive a trip — confirm it disappears from
+  `TripSwitcher`'s default list and from Rollup, but is reachable via "Show
+  archived" and still fully usable (Entry/List/Budget/Export) while active.
+  Archive the active trip with another non-archived trip present — confirm
+  auto-switch. Archive down to zero non-archived trips — confirm no errors
+  and Rollup shows its empty state.
+- Backup/restore round-trip: back up, open the downloaded `.json` and eyeball
+  its shape, then mutate data (add an expense, rename a trip, archive one),
+  restore that same file, and confirm every trip/expense/budget/archived
+  flag/active trip is back to the backed-up state after reload. Feed the
+  restore picker a non-JSON file and a file with an unsupported `version` —
+  confirm clear error messages and that existing data is untouched.
+- Backup nudge: back-date the stored `lastBackup` via devtools IndexedDB, add
+  expenses past the edit threshold, reload — confirm the toast appears;
+  "Back up now" switches to the Export tab; completing a backup clears it;
+  dismissing hides it for the session only (reappears next load if still
+  overdue).
 
 ## 6. CI
 

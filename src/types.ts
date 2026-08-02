@@ -24,6 +24,10 @@ export interface Trip {
   // rather than a separate record so Phase 3's per-trip budgets don't need a
   // migration. A missing entry (or the whole map) means no budget set.
   budget_usd?: Partial<Record<Category, number>>;
+  // A completed/retired trip. Hides it from TripSwitcher's default list and
+  // from the Rollup tab's totals, but never deletes its data — orthogonal to
+  // deleteTrip, and reversible. Undefined means not archived.
+  archived?: boolean;
 }
 
 export type ExpenseStatus = 'planned' | 'actual';

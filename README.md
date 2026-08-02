@@ -26,6 +26,15 @@ for test coverage.
 - **Multi-trip** — create, rename, switch between, and delete trips from a
   header trip switcher. Each trip has its own expenses and per-category
   budget; a device always keeps at least one trip.
+- **Trip archiving & rollup** — archive a finished trip to hide it from the
+  everyday switcher list (still reachable via "Show archived," never
+  deleted) and from the **Rollup** tab, which shows one tile per active trip
+  (Budget/Actual/Planned/Remaining) plus a grand total across all of them.
+- **Full backup/restore** — a versioned, round-trippable JSON snapshot of
+  every trip and expense on the device (distinct from the CSV/`.xlsx`
+  exports, which are single-trip and display-oriented), with a confirm-gated
+  restore and a dismissible nudge toast once it's been a while and enough
+  has changed since the last backup.
 
 ## Tech stack
 
@@ -70,22 +79,32 @@ mode). Data persists across reloads via IndexedDB.
 src/
   types.ts          Domain model + fixed category set; isUsdPending
   db.ts             IndexedDB load/save (localForage): a trips registry +
-                     activeTripId, plus per-trip expense keys. Migrates
-                     pre-multi-trip data into a trip on first load.
+                     activeTripId + lastBackup, plus per-trip expense keys.
+                     Migrates pre-multi-trip data into a trip on first load.
   useTrips.ts       Owns the trip registry: create/rename/delete/select,
-                     per-trip budget
+                     per-trip budget, archive/unarchive
   useTripData.ts    Owns one trip's expenses (loads once per active trip,
                      mirrors to IndexedDB)
+  useAllTripsData.ts  Read-only, cross-trip expenses for the Rollup tab and
+                     the backup nudge's edit count
+  useBackup.ts      IO for full JSON backup/restore (fresh-read export,
+                     validate-then-write restore)
+  useBackupNudge.ts Nudges toward a backup once both a time and an
+                     edit-count threshold since the last one are crossed
   lib/              Pure logic, no React — unit-tested
     totals.ts       By-category totals + grand total (GBP & USD separate)
+    budget.ts       Budget vs. actual vs. planned, per-trip and cross-trip
+    backup.ts       Full JSON backup file format + validation
     report.ts       Shared export model consumed by both exporters
     csv.ts          CSV export
     xlsx.ts         Formatted .xlsx export (ExcelJS, dynamically imported)
+    share.ts        Web Share API + download-fallback helpers
     format.ts       Currency + date helpers; trip-name slugify for filenames
     id.ts           Shared id generator
-  components/       One file per screen (Entry, List, Totals, Budget, Export)
-                    + TripSwitcher (header trip create/rename/switch/delete)
-                    + UpdateToast (update/offline-ready banner)
+  components/       One file per screen (Entry, List, Totals, Budget,
+                    Rollup, Export) + TripSwitcher (header trip
+                    create/rename/switch/delete/archive) + UpdateToast +
+                    BackupNudgeToast + BackupPanel (rendered inside Export)
   App.tsx           Tab shell
 scripts/gen-icons.mjs  Rasterizes the suitcase SVG to every icon size (sharp)
 ```
@@ -122,12 +141,16 @@ using `sharp` — no browser needed).
 
 ## Roadmap
 
-MVP (this scaffold) is Phase 1 in [`SPEC.md`](./SPEC.md). Phases 2 and 3 are
-done:
+MVP (this scaffold) is Phase 1 in [`SPEC.md`](./SPEC.md). Phases 2–5 are done:
 
 - **Phase 2 — budgeting:** pre-trip budget per category, budget-vs-actual view.
 - **Phase 3 — multi-trip:** trip creation/switching/rename/delete via the
   header trip switcher; per-trip budgets and exports.
-- **Phase 4 — nice-to-haves (not started):** backup/restore, receipt photos.
+- **Phase 4 — data safety:** full JSON backup/restore (versioned,
+  round-trippable, distinct from the CSV/`.xlsx` exports) with a dismissible
+  backup nudge. Receipt photos (the phase's other item) is not started.
+- **Phase 5 — trip archiving & rollup:** archive/unarchive a trip without
+  deleting its data; a Rollup tab summarizing all active trips'
+  budget/actual/planned/remaining.
 
-Don't pull Phase 4 work forward without being asked.
+Don't pull receipt photos forward without being asked.
