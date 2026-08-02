@@ -5,9 +5,11 @@ import {
   ensureInitialized,
   loadActiveTripId,
   loadExpenses,
+  loadLastBackup,
   loadTrips,
   saveActiveTripId,
   saveExpenses,
+  saveLastBackup,
   saveTrips,
 } from './db';
 import type { Expense } from './types';
@@ -133,5 +135,17 @@ describe('trip list persistence', () => {
 
   it('returns null when never initialized', async () => {
     expect(await loadTrips()).toBeNull();
+  });
+});
+
+describe('last backup tracking', () => {
+  it('round-trips last backup info', async () => {
+    const info = { at: '2026-08-01T00:00:00.000Z', expenseCount: 12 };
+    await saveLastBackup(info);
+    expect(await loadLastBackup()).toEqual(info);
+  });
+
+  it('returns null when never backed up', async () => {
+    expect(await loadLastBackup()).toBeNull();
   });
 });

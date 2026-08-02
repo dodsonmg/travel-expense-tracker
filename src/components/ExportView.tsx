@@ -1,49 +1,39 @@
 import { useState } from 'react';
-import type { Category, Expense } from '../types';
+import type { Category, Expense, Trip } from '../types';
+import type { LastBackupInfo } from '../db';
 import { buildCsv, csvFilename } from '../lib/csv';
 import { buildXlsx, xlsxFilename, XLSX_MIME } from '../lib/xlsx';
+import { downloadBlob, shareBlob } from '../lib/share';
+import { BackupPanel } from './BackupPanel';
 
 interface Props {
   expenses: Expense[];
   budget: Partial<Record<Category, number>>;
   tripName: string;
+  trips: Trip[];
+  activeTripId: string;
+  lastBackup: LastBackupInfo | null;
+  onBackedUp: () => void;
 }
 
 // Export to keep or share. A formatted .xlsx (totals sheet up top) is
 // primary; a plain CSV is kept as a lightweight fallback. Sharing uses the
-// Web Share API (mobile share sheet) with a download fallback.
-export function ExportView({ expenses, budget, tripName }: Props) {
+// Web Share API (mobile share sheet) with a download fallback. The full
+// cross-trip JSON backup/restore lives below in BackupPanel — conceptually
+// adjacent ("get my data out"), not a separate tab.
+export function ExportView({
+  expenses,
+  budget,
+  tripName,
+  trips,
+  activeTripId,
+  lastBackup,
+  onBackedUp,
+}: Props) {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const empty = expenses.length === 0;
-
-  async function shareBlob(blob: Blob, name: string, type: string) {
-    const file = new File([blob], name, { type });
-    const nav = navigator as Navigator & {
-      canShare?: (data: ShareData) => boolean;
-    };
-    if (nav.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: name });
-        setStatus('Shared.');
-        return;
-      } catch {
-        // user cancelled or share failed — fall through to download
-      }
-    }
-    downloadBlob(blob, name);
-  }
-
-  function downloadBlob(blob: Blob, name: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatus(`Saved ${name}`);
-  }
 
   async function makeXlsx(): Promise<{ blob: Blob; name: string }> {
     const buf = await buildXlsx(expenses, budget, tripName);
@@ -87,7 +77,8 @@ export function ExportView({ expenses, budget, tripName }: Props) {
         onClick={() =>
           withBusy(async () => {
             const { blob, name } = await makeXlsx();
-            await shareBlob(blob, name, XLSX_MIME);
+            const result = await shareBlob(blob, name, XLSX_MIME);
+            setStatus(result === 'shared' ? 'Shared.' : `Saved ${name}`);
           })
         }
       >
@@ -101,6 +92,7 @@ export function ExportView({ expenses, budget, tripName }: Props) {
           withBusy(async () => {
             const { blob, name } = await makeXlsx();
             downloadBlob(blob, name);
+            setStatus(`Saved ${name}`);
           })
         }
       >
@@ -113,6 +105,7 @@ export function ExportView({ expenses, budget, tripName }: Props) {
         onClick={() => {
           const { blob, name } = makeCsv();
           downloadBlob(blob, name);
+          setStatus(`Saved ${name}`);
         }}
       >
         Download CSV
@@ -121,6 +114,13 @@ export function ExportView({ expenses, budget, tripName }: Props) {
       {busy && <p className="muted small">Building spreadsheet…</p>}
       {empty && <p className="muted">Nothing to export yet.</p>}
       {status && !busy && <p className="muted small">{status}</p>}
+
+      <BackupPanel
+        trips={trips}
+        activeTripId={activeTripId}
+        lastBackup={lastBackup}
+        onBackedUp={onBackedUp}
+      />
     </div>
   );
 }

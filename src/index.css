@@ -91,6 +91,11 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
+.trip-switch__archived-toggle {
+  align-self: flex-start;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 
 /* ---- PWA update/offline-ready banner ---- */
 .update-toast {
@@ -180,6 +185,18 @@ body {
 }
 .small {
   font-size: 0.82rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---- Forms ---- */
@@ -466,4 +483,12 @@ h2 {
 }
 .budget-tile--total {
   border-color: var(--accent);
+}
+.budget-tile--clickable {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }

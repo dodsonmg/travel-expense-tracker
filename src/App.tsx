@@ -1,19 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTrips } from './useTrips';
 import { useTripData } from './useTripData';
+import { useAllTripsData } from './useAllTripsData';
+import { useBackupNudge } from './useBackupNudge';
 import { EntryForm } from './components/EntryForm';
 import { ExpenseList } from './components/ExpenseList';
 import { TotalsView } from './components/TotalsView';
 import { BudgetView } from './components/BudgetView';
+import { RollupView } from './components/RollupView';
 import { ExportView } from './components/ExportView';
 import { TripSwitcher } from './components/TripSwitcher';
 import { UpdateToast } from './components/UpdateToast';
+import { BackupNudgeToast } from './components/BackupNudgeToast';
 
 const TABS = [
   { id: 'entry', label: 'Entry', icon: '＋' },
   { id: 'list', label: 'List', icon: '☰' },
   { id: 'totals', label: 'Totals', icon: 'Σ' },
   { id: 'budget', label: 'Budget', icon: '🎯' },
+  { id: 'rollup', label: 'Rollup', icon: '🧳' },
   { id: 'export', label: 'Export', icon: '⇪' },
 ] as const;
 
@@ -23,8 +28,23 @@ export default function App() {
   const [tab, setTab] = useState<TabId>('entry');
   const trips = useTrips();
   const tripData = useTripData(trips.activeTripId);
+  const {
+    loaded: allTripsLoaded,
+    expensesByTripId,
+    setExpensesForTrip,
+  } = useAllTripsData(trips.trips);
+  const backupNudge = useBackupNudge(expensesByTripId, allTripsLoaded);
   const ready = trips.loaded && tripData.loaded;
   const activeTrip = trips.trips.find((t) => t.id === trips.activeTripId);
+
+  // The one place expenses can change without the trip-id set changing —
+  // keeps the Rollup tab (and the backup nudge) in sync with live edits to
+  // the active trip without an extra IndexedDB read.
+  useEffect(() => {
+    if (tripData.loaded) {
+      setExpensesForTrip(trips.activeTripId, tripData.expenses);
+    }
+  }, [tripData.expenses, tripData.loaded, trips.activeTripId, setExpensesForTrip]);
 
   function renderTab() {
     switch (tab) {
@@ -52,12 +72,28 @@ export default function App() {
             }
           />
         );
+      case 'rollup':
+        return (
+          <RollupView
+            trips={trips.trips}
+            expensesByTripId={expensesByTripId}
+            loaded={allTripsLoaded}
+            onSelectTrip={(id) => {
+              trips.selectTrip(id);
+              setTab('budget');
+            }}
+          />
+        );
       case 'export':
         return (
           <ExportView
             expenses={tripData.expenses}
             budget={activeTrip?.budget_usd ?? {}}
             tripName={activeTrip?.name ?? ''}
+            trips={trips.trips}
+            activeTripId={trips.activeTripId}
+            lastBackup={backupNudge.lastBackup}
+            onBackedUp={backupNudge.markBackedUp}
           />
         );
     }
@@ -75,11 +111,18 @@ export default function App() {
             onCreate={trips.createTrip}
             onRename={trips.renameTrip}
             onDelete={trips.deleteTrip}
+            onSetArchived={trips.setArchived}
           />
         )}
       </header>
 
       <UpdateToast />
+      <BackupNudgeToast
+        visible={backupNudge.shouldNudge}
+        daysSinceBackup={backupNudge.daysSinceBackup}
+        onDismiss={backupNudge.dismiss}
+        onGoToBackup={() => setTab('export')}
+      />
 
       <main className="app__main">
         {!ready ? <p className="muted">Loading…</p> : renderTab()}

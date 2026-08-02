@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { budgetByCategory, budgetGrandTotal } from './budget';
+import { budgetByCategory, budgetGrandTotal, sumBudgetTotals, tripBudgetTotal } from './budget';
 import { CATEGORIES, type Expense } from '../types';
 
 const exp = (over: Partial<Expense> = {}): Expense => ({
@@ -90,6 +90,47 @@ describe('budgetGrandTotal', () => {
       actualUsd: 100,
       plannedUsd: 650,
       remainingUsd: 1450,
+    });
+  });
+});
+
+describe('tripBudgetTotal', () => {
+  it('matches budgetGrandTotal(budgetByCategory(...)) in one call', () => {
+    const expenses = [
+      exp({ category: 'Food & Dining', amount_usd: 100, status: 'actual' }),
+      exp({ category: 'Accommodation', amount_usd: 650, status: 'planned' }),
+    ];
+    const budget = { 'Food & Dining': 1000, Accommodation: 1200 } as const;
+    expect(tripBudgetTotal(expenses, budget)).toEqual(
+      budgetGrandTotal(budgetByCategory(expenses, budget)),
+    );
+  });
+});
+
+describe('sumBudgetTotals', () => {
+  it('sums budget/actual/planned/remaining across trips', () => {
+    const tripA = tripBudgetTotal(
+      [exp({ category: 'Food & Dining', amount_usd: 100, status: 'actual' })],
+      { 'Food & Dining': 200 },
+    );
+    const tripB = tripBudgetTotal(
+      [exp({ category: 'Transport', amount_usd: 50, status: 'planned' })],
+      { Transport: 300 },
+    );
+    expect(sumBudgetTotals([tripA, tripB])).toEqual({
+      budgetUsd: 500,
+      actualUsd: 100,
+      plannedUsd: 50,
+      remainingUsd: 350,
+    });
+  });
+
+  it('returns all zeros for an empty list', () => {
+    expect(sumBudgetTotals([])).toEqual({
+      budgetUsd: 0,
+      actualUsd: 0,
+      plannedUsd: 0,
+      remainingUsd: 0,
     });
   });
 });

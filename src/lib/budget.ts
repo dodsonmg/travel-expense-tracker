@@ -58,3 +58,26 @@ export function budgetGrandTotal(rows: BudgetRow[]): BudgetTotal {
     { budgetUsd: 0, actualUsd: 0, plannedUsd: 0, remainingUsd: 0 },
   );
 }
+
+// One trip's Total-tile figures in a single call — what the Rollup tab needs
+// per trip, without a caller having to know budgetByCategory is the
+// intermediate step.
+export function tripBudgetTotal(
+  expenses: Expense[],
+  budget: Partial<Record<Category, number>>,
+): BudgetTotal {
+  return budgetGrandTotal(budgetByCategory(expenses, budget));
+}
+
+// Sums BudgetTotals across trips, for the Rollup tab's grand-total tile.
+export function sumBudgetTotals(totals: BudgetTotal[]): BudgetTotal {
+  return totals.reduce(
+    (acc, t) => ({
+      budgetUsd: acc.budgetUsd + t.budgetUsd,
+      actualUsd: acc.actualUsd + t.actualUsd,
+      plannedUsd: acc.plannedUsd + t.plannedUsd,
+      remainingUsd: acc.remainingUsd + t.remainingUsd,
+    }),
+    { budgetUsd: 0, actualUsd: 0, plannedUsd: 0, remainingUsd: 0 },
+  );
+}
