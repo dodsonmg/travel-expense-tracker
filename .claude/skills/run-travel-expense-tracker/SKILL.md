@@ -73,15 +73,16 @@ Screenshots land in `/tmp/travel-expense-tracker-shots/` (override:
 | `console --errors` | print any page/console errors seen so far |
 | `quit` | close the browser, exit |
 
-Verified this session: `launch`/`wait-for`/`ss`/`text`/`console --errors`/
-`quit` all work; the Entry tab screenshots correctly once waited on a
-post-load selector (see Gotchas — `#root` is not sufficient); bad selectors
-on `fill`/`click`/`select` time out cleanly and get logged without crashing
-the driver. **Not yet verified**: a full fill → save → List round trip —
-the first attempt used guessed selectors (`input#gbp`, bare `textarea`,
-`button:has-text("Save & view list")`) that didn't match the real DOM, so
-that path timed out. Next real usage should `text` or `eval` the form first
-to find correct selectors rather than assume these ones.
+Verified this session, full round trip: `launch` → `fill
+input[placeholder="0.00"] 42.50` (GBP amount) → `fill
+input[placeholder="optional"] Taxi to airport` (note) → `click
+button:has-text("Save & view list")` correctly adds the expense and
+switches to the List tab, where it renders with the right category/amount/
+note. `wait-for`/`ss`/`text`/`console --errors`/`quit` all confirmed
+working too, with zero console errors at any step. Note the GBP/USD amount
+fields and the note field are plain `<input>`s with `placeholder` text
+(`0.00`/`pending`/`optional`), not `id`s and not `<textarea>` — target them
+by placeholder, not by guessing an id or element type.
 
 ## Run (human path)
 
