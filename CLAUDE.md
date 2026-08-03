@@ -24,6 +24,17 @@ npm run lint       # eslint .
 npm test           # vitest run
 ```
 
+## UI testing
+
+For any UI/frontend change, verify it in a real browser before calling the
+task done — don't rely on typecheck/lint/tests alone to confirm the feature
+works. Use `.claude/skills/run-travel-expense-tracker/driver.mjs`: a
+headless-Chromium (Playwright) REPL driver, run against `npm run dev`. See
+the file's header comments for the command vocabulary, invocation (read
+commands from a redirected file, not a pipe), and gotchas (e.g. don't
+`wait-for #root` — it exists before the IndexedDB load resolves; wait for
+something that only renders post-load).
+
 ## Architecture
 
 - `src/types.ts` — domain types + the fixed `CATEGORIES` list/order (Transport,
